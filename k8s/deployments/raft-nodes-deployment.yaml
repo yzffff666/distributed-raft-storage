@@ -1,0 +1,167 @@
+# Raft Node 1
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raft-node-1-deployment
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-1
+    app.kubernetes.io/component: raft-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: raft-node-1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: raft-node-1
+        app.kubernetes.io/component: raft-core
+    spec:
+      containers:
+      - name: raft-node-1
+        image: raft-core:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8051
+          name: raft
+        env:
+        - name: RAFT_NODE_ID
+          value: "1"
+        - name: RAFT_NODE_PORT
+          value: "8051"
+        - name: RAFT_CLUSTER_NODES
+          value: "raft-node-1-service:8051,raft-node-2-service:8052,raft-node-3-service:8053"
+        - name: RAFT_DATA_PATH
+          value: "/app/data"
+        volumeMounts:
+        - name: raft-data
+          mountPath: /app/data
+        - name: raft-logs
+          mountPath: /app/logs
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: raft-data
+        persistentVolumeClaim:
+          claimName: raft-node-1-data-pvc
+      - name: raft-logs
+        persistentVolumeClaim:
+          claimName: raft-node-1-logs-pvc
+---
+# Raft Node 2
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raft-node-2-deployment
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-2
+    app.kubernetes.io/component: raft-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: raft-node-2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: raft-node-2
+        app.kubernetes.io/component: raft-core
+    spec:
+      containers:
+      - name: raft-node-2
+        image: raft-core:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8052
+          name: raft
+        env:
+        - name: RAFT_NODE_ID
+          value: "2"
+        - name: RAFT_NODE_PORT
+          value: "8052"
+        - name: RAFT_CLUSTER_NODES
+          value: "raft-node-1-service:8051,raft-node-2-service:8052,raft-node-3-service:8053"
+        - name: RAFT_DATA_PATH
+          value: "/app/data"
+        volumeMounts:
+        - name: raft-data
+          mountPath: /app/data
+        - name: raft-logs
+          mountPath: /app/logs
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: raft-data
+        persistentVolumeClaim:
+          claimName: raft-node-2-data-pvc
+      - name: raft-logs
+        persistentVolumeClaim:
+          claimName: raft-node-2-logs-pvc
+---
+# Raft Node 3
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raft-node-3-deployment
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-3
+    app.kubernetes.io/component: raft-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: raft-node-3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: raft-node-3
+        app.kubernetes.io/component: raft-core
+    spec:
+      containers:
+      - name: raft-node-3
+        image: raft-core:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8053
+          name: raft
+        env:
+        - name: RAFT_NODE_ID
+          value: "3"
+        - name: RAFT_NODE_PORT
+          value: "8053"
+        - name: RAFT_CLUSTER_NODES
+          value: "raft-node-1-service:8051,raft-node-2-service:8052,raft-node-3-service:8053"
+        - name: RAFT_DATA_PATH
+          value: "/app/data"
+        volumeMounts:
+        - name: raft-data
+          mountPath: /app/data
+        - name: raft-logs
+          mountPath: /app/logs
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: raft-data
+        persistentVolumeClaim:
+          claimName: raft-node-3-data-pvc
+      - name: raft-logs
+        persistentVolumeClaim:
+          claimName: raft-node-3-logs-pvc

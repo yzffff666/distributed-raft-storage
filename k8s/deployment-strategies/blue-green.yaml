@@ -1,0 +1,308 @@
+# 蓝绿部署 - 蓝色环境（当前生产环境）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raft-api-blue
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    version: v1.9.0
+    environment: blue
+spec:
+  replicas: 3
+  strategy:
+    type: Recreate  # 蓝绿部署使用重建策略
+  selector:
+    matchLabels:
+      app: raft-storage
+      component: api
+      environment: blue
+  template:
+    metadata:
+      labels:
+        app: raft-storage
+        component: api
+        version: v1.9.0
+        environment: blue
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/api/v1/actuator/prometheus"
+    spec:
+      serviceAccountName: raft-storage-sa
+      containers:
+      - name: api
+        image: raft-api:v1.9.0
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "kubernetes,blue"
+        - name: ENVIRONMENT
+          value: "blue"
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "300m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: config
+        configMap:
+          name: raft-api-config
+
+---
+# 蓝绿部署 - 绿色环境（新版本）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raft-api-green
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    version: v1.10.0
+    environment: green
+spec:
+  replicas: 0  # 初始状态为0，部署时才扩容
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: raft-storage
+      component: api
+      environment: green
+  template:
+    metadata:
+      labels:
+        app: raft-storage
+        component: api
+        version: v1.10.0
+        environment: green
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/api/v1/actuator/prometheus"
+    spec:
+      serviceAccountName: raft-storage-sa
+      containers:
+      - name: api
+        image: raft-api:v1.10.0  # 新版本镜像
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "kubernetes,green"
+        - name: ENVIRONMENT
+          value: "green"
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "300m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: config
+        configMap:
+          name: raft-api-config
+
+---
+# 生产环境Service（指向蓝色环境）
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-api-service
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: raft-storage
+    component: api
+    environment: blue  # 当前指向蓝色环境
+
+---
+# 测试环境Service（用于测试绿色环境）
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-api-service-test
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    environment: test
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: raft-storage
+    component: api
+    environment: green  # 指向绿色环境进行测试
+
+---
+# 蓝色环境专用Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-api-service-blue
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    environment: blue
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: raft-storage
+    component: api
+    environment: blue
+
+---
+# 绿色环境专用Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-api-service-green
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    environment: green
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: raft-storage
+    component: api
+    environment: green
+
+---
+# Ingress配置（支持蓝绿切换）
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: raft-api-ingress
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # 蓝绿部署相关注解
+    nginx.ingress.kubernetes.io/canary: "false"
+    nginx.ingress.kubernetes.io/canary-weight: "0"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: raft-api.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: raft-api-service  # 当前指向蓝色环境
+            port:
+              number: 80
+  - host: raft-api-test.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: raft-api-service-test  # 测试环境指向绿色环境
+            port:
+              number: 80
+
+---
+# Canary Ingress（用于金丝雀发布）
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: raft-api-ingress-canary
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    environment: canary
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # 金丝雀发布配置
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "10"  # 10%流量到新版本
+    nginx.ingress.kubernetes.io/canary-by-header: "X-Canary"
+    nginx.ingress.kubernetes.io/canary-by-header-value: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: raft-api.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: raft-api-service-green  # 金丝雀流量指向绿色环境
+            port:
+              number: 80 

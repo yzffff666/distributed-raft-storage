@@ -1,0 +1,251 @@
+# Telemetry配置 - 指标收集
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: metrics
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+spec:
+  metrics:
+  # 自定义指标配置
+  - providers:
+    - name: prometheus
+  - overrides:
+    - match:
+        metric: ALL_METRICS
+      tagOverrides:
+        # 添加自定义标签
+        app_version:
+          value: "v1.9.0"
+        environment:
+          value: "production"
+        cluster:
+          value: "raft-storage"
+    - match:
+        metric: REQUEST_COUNT
+      disabled: false
+    - match:
+        metric: REQUEST_DURATION
+      disabled: false
+    - match:
+        metric: REQUEST_SIZE
+      disabled: false
+    - match:
+        metric: RESPONSE_SIZE
+      disabled: false
+    - match:
+        metric: TCP_OPENED_CONNECTIONS
+      disabled: false
+    - match:
+        metric: TCP_CLOSED_CONNECTIONS
+      disabled: false
+
+---
+# Telemetry配置 - 访问日志
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: access-logs
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+spec:
+  accessLogging:
+  - providers:
+    - name: otel  # 使用OpenTelemetry收集器
+  - match:
+      mode: CLIENT
+    format: |
+      {
+        "timestamp": "%START_TIME%",
+        "method": "%REQ(:METHOD)%",
+        "url": "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%",
+        "protocol": "%PROTOCOL%",
+        "response_code": "%RESPONSE_CODE%",
+        "response_flags": "%RESPONSE_FLAGS%",
+        "bytes_received": "%BYTES_RECEIVED%",
+        "bytes_sent": "%BYTES_SENT%",
+        "duration": "%DURATION%",
+        "upstream_service_time": "%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%",
+        "x_forwarded_for": "%REQ(X-FORWARDED-FOR)%",
+        "user_agent": "%REQ(USER-AGENT)%",
+        "request_id": "%REQ(X-REQUEST-ID)%",
+        "authority": "%REQ(:AUTHORITY)%",
+        "upstream_host": "%UPSTREAM_HOST%",
+        "upstream_cluster": "%UPSTREAM_CLUSTER%",
+        "upstream_local_address": "%UPSTREAM_LOCAL_ADDRESS%",
+        "downstream_local_address": "%DOWNSTREAM_LOCAL_ADDRESS%",
+        "downstream_remote_address": "%DOWNSTREAM_REMOTE_ADDRESS%",
+        "requested_server_name": "%REQUESTED_SERVER_NAME%",
+        "route_name": "%ROUTE_NAME%"
+      }
+
+---
+# Telemetry配置 - 分布式追踪
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: tracing
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+spec:
+  tracing:
+  - providers:
+    - name: jaeger  # 使用Jaeger作为追踪后端
+  - customTags:
+      # 自定义追踪标签
+      app_name:
+        literal:
+          value: "raft-storage"
+      app_version:
+        literal:
+          value: "v1.9.0"
+      environment:
+        literal:
+          value: "production"
+      user_id:
+        header:
+          name: "x-user-id"
+          defaultValue: "anonymous"
+
+---
+# EnvoyFilter配置 - 自定义指标
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: custom-metrics
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+spec:
+  configPatches:
+  - applyTo: HTTP_FILTER
+    match:
+      context: SIDECAR_INBOUND
+      listener:
+        filterChain:
+          filter:
+            name: "envoy.filters.network.http_connection_manager"
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        name: envoy.filters.http.wasm
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
+          config:
+            name: "custom_metrics"
+            root_id: "custom_metrics"
+            configuration:
+              "@type": type.googleapis.com/google.protobuf.StringValue
+              value: |
+                {
+                  "metric_name": "raft_storage_requests",
+                  "labels": ["method", "path", "status_code", "user_id"]
+                }
+
+---
+# ServiceMonitor配置 - Prometheus指标收集
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: raft-storage-metrics
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: raft-storage
+  endpoints:
+  # API服务指标
+  - port: http
+    path: /api/v1/actuator/prometheus
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'raft_storage_.*'
+      targetLabel: service
+      replacement: 'raft-api'
+  # Istio Envoy指标
+  - port: http-monitoring
+    path: /stats/prometheus
+    interval: 15s
+    scrapeTimeout: 10s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'istio_.*'
+      targetLabel: service
+      replacement: 'istio-proxy'
+
+---
+# PrometheusRule配置 - 告警规则
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: raft-storage-istio-rules
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: monitoring
+spec:
+  groups:
+  - name: raft-storage-istio
+    interval: 30s
+    rules:
+    # 服务网格连接性告警
+    - alert: IstioServiceDown
+      expr: up{job="raft-storage-metrics"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: "{{ $labels.service }}"
+      annotations:
+        summary: "Istio service is down"
+        description: "Service {{ $labels.service }} has been down for more than 1 minute"
+    
+    # 高错误率告警
+    - alert: HighErrorRate
+      expr: |
+        (
+          rate(istio_requests_total{destination_service_name="raft-api-service",response_code!~"2.."}[5m]) /
+          rate(istio_requests_total{destination_service_name="raft-api-service"}[5m])
+        ) > 0.05
+      for: 2m
+      labels:
+        severity: warning
+        service: raft-api
+      annotations:
+        summary: "High error rate detected"
+        description: "Error rate is {{ $value | humanizePercentage }} for service {{ $labels.destination_service_name }}"
+    
+    # 高延迟告警
+    - alert: HighLatency
+      expr: |
+        histogram_quantile(0.99,
+          rate(istio_request_duration_milliseconds_bucket{destination_service_name="raft-api-service"}[5m])
+        ) > 1000
+      for: 2m
+      labels:
+        severity: warning
+        service: raft-api
+      annotations:
+        summary: "High latency detected"
+        description: "99th percentile latency is {{ $value }}ms for service {{ $labels.destination_service_name }}"
+    
+    # mTLS连接失败告警
+    - alert: MtlsConnectionFailure
+      expr: |
+        rate(istio_requests_total{source_app="unknown",destination_service_name="raft-api-service"}[5m]) > 0
+      for: 1m
+      labels:
+        severity: warning
+        service: raft-api
+      annotations:
+        summary: "mTLS connection failure detected"
+        description: "Detected requests from unknown source to {{ $labels.destination_service_name }}" 

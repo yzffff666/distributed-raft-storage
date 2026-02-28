@@ -1,0 +1,125 @@
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  padding: 20px;
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 全局样式 */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .ant-card {
+    margin: 8px;
+  }
+  
+  .ant-layout-header {
+    padding: 0 16px !important;
+  }
+  
+  .ant-layout-content {
+    padding: 16px !important;
+  }
+}
+
+/* 自定义样式 */
+.dashboard-card {
+  height: 100%;
+  transition: all 0.3s ease;
+}
+
+.dashboard-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.status-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.status-healthy {
+  background-color: #52c41a;
+}
+
+.status-warning {
+  background-color: #faad14;
+}
+
+.status-error {
+  background-color: #ff4d4f;
+}
+
+/* 加载动画 */
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+}
+
+/* 图表容器 */
+.chart-container {
+  width: 100%;
+  height: 300px;
+}
+
+/* 统计卡片 */
+.stat-card {
+  text-align: center;
+  padding: 24px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 8px;
+}
+
+.stat-card .ant-statistic-title {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.stat-card .ant-statistic-content {
+  color: white;
+}

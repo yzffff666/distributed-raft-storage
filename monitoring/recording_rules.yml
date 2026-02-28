@@ -1,0 +1,227 @@
+groups:
+  # 系统指标记录规则
+  - name: system_recording.rules
+    interval: 30s
+    rules:
+      # CPU使用率记录规则
+      - record: instance:cpu_usage_percent
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+      # 内存使用率记录规则
+      - record: instance:memory_usage_percent
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+
+      # 磁盘使用率记录规则
+      - record: instance:disk_usage_percent
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100
+
+      # 网络IO速率记录规则
+      - record: instance:network_receive_bytes_rate
+        expr: rate(node_network_receive_bytes_total[5m])
+
+      - record: instance:network_transmit_bytes_rate
+        expr: rate(node_network_transmit_bytes_total[5m])
+
+      # 磁盘IO速率记录规则
+      - record: instance:disk_read_bytes_rate
+        expr: rate(node_disk_read_bytes_total[5m])
+
+      - record: instance:disk_write_bytes_rate
+        expr: rate(node_disk_written_bytes_total[5m])
+
+  # 应用指标记录规则
+  - name: application_recording.rules
+    interval: 30s
+    rules:
+      # API请求速率记录规则
+      - record: api:request_rate
+        expr: sum(rate(http_requests_total{job="raft-api"}[5m])) by (method, status)
+
+      # API响应时间分位数记录规则
+      - record: api:response_time_p50
+        expr: histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job="raft-api"}[5m])) by (le, method))
+
+      - record: api:response_time_p90
+        expr: histogram_quantile(0.90, sum(rate(http_request_duration_seconds_bucket{job="raft-api"}[5m])) by (le, method))
+
+      - record: api:response_time_p95
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="raft-api"}[5m])) by (le, method))
+
+      - record: api:response_time_p99
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="raft-api"}[5m])) by (le, method))
+
+      # API错误率记录规则
+      - record: api:error_rate
+        expr: sum(rate(http_requests_total{job="raft-api",status=~"5.."}[5m])) / sum(rate(http_requests_total{job="raft-api"}[5m])) * 100
+
+      # JVM指标记录规则
+      - record: jvm:heap_usage_percent
+        expr: jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} * 100
+
+      - record: jvm:non_heap_usage_percent
+        expr: jvm_memory_used_bytes{area="nonheap"} / jvm_memory_max_bytes{area="nonheap"} * 100
+
+      - record: jvm:gc_rate
+        expr: rate(jvm_gc_collection_seconds_count[5m])
+
+      - record: jvm:gc_time_rate
+        expr: rate(jvm_gc_collection_seconds_sum[5m])
+
+  # Redis指标记录规则
+  - name: redis_recording.rules
+    interval: 30s
+    rules:
+      # Redis内存使用率记录规则
+      - record: redis:memory_usage_percent
+        expr: redis_memory_used_bytes / redis_memory_max_bytes * 100
+
+      # Redis命令执行速率记录规则
+      - record: redis:commands_rate
+        expr: rate(redis_commands_processed_total[5m])
+
+      # Redis缓存命中率记录规则
+      - record: redis:cache_hit_rate
+        expr: redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total) * 100
+
+      # Redis连接数记录规则
+      - record: redis:connections_usage_percent
+        expr: redis_connected_clients / redis_config_maxclients * 100
+
+      # Redis键空间记录规则
+      - record: redis:keyspace_size
+        expr: sum(redis_db_keys) by (instance)
+
+      # Redis网络IO记录规则
+      - record: redis:network_input_bytes_rate
+        expr: rate(redis_net_input_bytes_total[5m])
+
+      - record: redis:network_output_bytes_rate
+        expr: rate(redis_net_output_bytes_total[5m])
+
+  # Raft集群指标记录规则
+  - name: raft_recording.rules
+    interval: 30s
+    rules:
+      # Raft集群健康状态记录规则
+      - record: raft:cluster_health
+        expr: sum(up{job="raft-nodes"}) / count(up{job="raft-nodes"}) * 100
+
+      # Raft Leader状态记录规则
+      - record: raft:leader_count
+        expr: sum(raft_leader_status)
+
+      # Raft日志复制延迟记录规则
+      - record: raft:log_replication_delay_p95
+        expr: histogram_quantile(0.95, sum(rate(raft_log_replication_delay_seconds_bucket[5m])) by (le))
+
+      # Raft提交速率记录规则
+      - record: raft:commit_rate
+        expr: rate(raft_commits_total[5m])
+
+      # Raft选举次数记录规则
+      - record: raft:election_rate
+        expr: rate(raft_elections_total[5m])
+
+  # 业务指标记录规则
+  - name: business_recording.rules
+    interval: 30s
+    rules:
+      # 存储操作速率记录规则
+      - record: storage:operation_rate
+        expr: sum(rate(storage_operations_total[5m])) by (operation, status)
+
+      # 存储操作成功率记录规则
+      - record: storage:success_rate
+        expr: sum(rate(storage_operations_total{status="success"}[5m])) / sum(rate(storage_operations_total[5m])) * 100
+
+      # 存储操作失败率记录规则
+      - record: storage:failure_rate
+        expr: sum(rate(storage_operations_total{status="failed"}[5m])) / sum(rate(storage_operations_total[5m])) * 100
+
+      # 存储容量使用率记录规则
+      - record: storage:capacity_usage_percent
+        expr: storage_capacity_used_bytes / storage_capacity_total_bytes * 100
+
+      # 缓存命中率记录规则
+      - record: cache:hit_rate
+        expr: sum(rate(cache_hits_total[5m])) / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m]))) * 100
+
+      # 限流拒绝率记录规则
+      - record: rate_limit:rejection_rate
+        expr: rate(rate_limit_rejected_total[5m])
+
+      # 熔断器状态记录规则
+      - record: circuit_breaker:open_count
+        expr: sum(circuit_breaker_state == 1) by (service)
+
+  # 聚合指标记录规则
+  - name: aggregation_recording.rules
+    interval: 60s
+    rules:
+      # 集群整体健康度记录规则
+      - record: cluster:health_score
+        expr: (
+          (sum(up) / count(up) * 30) +
+          (100 - avg(instance:cpu_usage_percent) * 0.25) +
+          (100 - avg(instance:memory_usage_percent) * 0.25) +
+          (100 - avg(instance:disk_usage_percent) * 0.1) +
+          (min(100, 100 - api:error_rate) * 0.1)
+        )
+
+      # 系统负载指数记录规则
+      - record: system:load_index
+        expr: (
+          avg(instance:cpu_usage_percent) * 0.4 +
+          avg(instance:memory_usage_percent) * 0.3 +
+          avg(instance:disk_usage_percent) * 0.2 +
+          (sum(api:request_rate) / 100) * 0.1
+        )
+
+      # 性能指数记录规则
+      - record: performance:index
+        expr: (
+          (1000 / (api:response_time_p95 * 1000)) * 0.4 +
+          storage:success_rate * 0.3 +
+          cache:hit_rate * 0.2 +
+          (100 - api:error_rate) * 0.1
+        )
+
+      # 资源利用率记录规则
+      - record: resource:utilization_index
+        expr: (
+          avg(instance:cpu_usage_percent) * 0.3 +
+          avg(instance:memory_usage_percent) * 0.3 +
+          avg(redis:memory_usage_percent) * 0.2 +
+          avg(jvm:heap_usage_percent) * 0.2
+        )
+
+  # 时间序列聚合记录规则
+  - name: timeseries_recording.rules
+    interval: 300s  # 5分钟聚合
+    rules:
+      # 5分钟平均值记录规则
+      - record: metrics:5m_avg:cpu_usage
+        expr: avg_over_time(instance:cpu_usage_percent[5m])
+
+      - record: metrics:5m_avg:memory_usage
+        expr: avg_over_time(instance:memory_usage_percent[5m])
+
+      - record: metrics:5m_avg:api_response_time
+        expr: avg_over_time(api:response_time_p95[5m])
+
+      # 5分钟最大值记录规则
+      - record: metrics:5m_max:cpu_usage
+        expr: max_over_time(instance:cpu_usage_percent[5m])
+
+      - record: metrics:5m_max:memory_usage
+        expr: max_over_time(instance:memory_usage_percent[5m])
+
+      - record: metrics:5m_max:api_response_time
+        expr: max_over_time(api:response_time_p95[5m])
+
+      # 5分钟总计记录规则
+      - record: metrics:5m_sum:api_requests
+        expr: sum_over_time(api:request_rate[5m])
+
+      - record: metrics:5m_sum:storage_operations
+        expr: sum_over_time(storage:operation_rate[5m]) 

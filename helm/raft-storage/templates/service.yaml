@@ -1,0 +1,47 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "raft-storage.fullname" . }}-api
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "raft-storage.labels" . | nindent 4 }}
+    component: api
+spec:
+  type: {{ .Values.api.service.type }}
+  ports:
+    - port: {{ .Values.api.service.port }}
+      targetPort: {{ .Values.api.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "raft-storage.selectorLabels" . | nindent 4 }}
+    component: api
+{{- end }}
+
+{{- if .Values.raft.enabled }}
+{{- range .Values.raft.nodes }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "raft-storage.fullname" $ }}-raft-node-{{ .id }}
+  namespace: {{ $.Values.namespace.name }}
+  labels:
+    {{- include "raft-storage.labels" $ | nindent 4 }}
+    component: raft-node
+    node-id: "{{ .id }}"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: {{ .port }}
+      targetPort: {{ .port }}
+      protocol: TCP
+      name: raft
+  selector:
+    {{- include "raft-storage.selectorLabels" $ | nindent 4 }}
+    component: raft-node
+    node-id: "{{ .id }}"
+{{- end }}
+{{- end }}

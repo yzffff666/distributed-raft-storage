@@ -1,0 +1,118 @@
+# 开发环境配置
+global:
+  imageRegistry: "harbor.example.com"
+  imageTag: "latest"
+  environment: "development"
+  namespace: "raft-storage-dev"
+
+# API服务配置
+api:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: harbor.example.com/raft-storage/api
+    tag: "latest"
+    pullPolicy: Always
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  
+  service:
+    type: ClusterIP
+    port: 8080
+  
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+    hosts:
+      - host: dev.raft-storage.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  
+  env:
+    SPRING_PROFILES_ACTIVE: "dev"
+    LOG_LEVEL: "DEBUG"
+    REDIS_HOST: "redis"
+    REDIS_PORT: "6379"
+
+# Raft核心服务配置
+raftCore:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: harbor.example.com/raft-storage/raft-core
+    tag: "latest"
+    pullPolicy: Always
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  
+  persistence:
+    enabled: true
+    storageClass: "standard"
+    accessMode: ReadWriteOnce
+    size: 5Gi
+
+# Redis配置
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 2Gi
+  replica:
+    replicaCount: 1
+
+# Prometheus监控
+prometheus:
+  enabled: true
+  server:
+    persistentVolume:
+      enabled: true
+      size: 5Gi
+  alertmanager:
+    enabled: true
+
+# Grafana可视化
+grafana:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 1Gi
+  adminPassword: "admin123"
+
+# 自动扩缩容
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+# 网络策略
+networkPolicy:
+  enabled: false
+
+# 安全配置
+security:
+  podSecurityPolicy:
+    enabled: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000 

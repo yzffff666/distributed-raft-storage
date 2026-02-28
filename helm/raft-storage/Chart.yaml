@@ -1,0 +1,30 @@
+apiVersion: v2
+name: raft-storage
+description: A Helm chart for Raft Distributed Storage System
+type: application
+version: 1.9.0
+appVersion: "1.9.0"
+keywords:
+  - raft
+  - distributed-storage
+  - kubernetes
+  - microservices
+home: https://github.com/yzffff666/distributed-raft-storage
+sources:
+  - https://github.com/yzffff666/distributed-raft-storage
+maintainers:
+  - name: raft-java
+    email: 1367016356@qq.com
+dependencies:
+  - name: redis
+    version: "17.15.6"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+  - name: prometheus
+    version: "25.8.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: monitoring.prometheus.enabled
+  - name: grafana
+    version: "7.0.19"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: monitoring.grafana.enabled

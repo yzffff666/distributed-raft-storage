@@ -1,0 +1,21 @@
+{{- if and .Values.api.enabled .Values.api.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "raft-storage.fullname" . }}-api-logs
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "raft-storage.labels" . | nindent 4 }}
+    component: api
+spec:
+  accessModes:
+    - {{ .Values.api.persistence.accessMode }}
+  {{- if .Values.api.persistence.storageClass }}
+  storageClassName: {{ .Values.api.persistence.storageClass }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.api.persistence.size }}
+{{- end }}

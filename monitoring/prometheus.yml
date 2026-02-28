@@ -1,0 +1,120 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  # 添加外部标签，用于多集群环境
+  external_labels:
+    cluster: 'raft-storage-cluster'
+    environment: 'production'
+
+# 告警规则文件配置
+rule_files:
+  - "alert_rules.yml"
+  - "recording_rules.yml"
+
+# AlertManager配置
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Prometheus自身监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+
+  # Spring Boot API服务监控
+  - job_name: 'raft-api'
+    static_configs:
+      - targets: ['api-server:8080']
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 10s
+    # 添加服务标签
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'raft-api'
+    # 健康检查
+    params:
+      format: ['prometheus']
+
+  # Redis监控 - 使用Redis Exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 15s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'redis-primary'
+
+  # Raft节点监控
+  - job_name: 'raft-nodes'
+    static_configs:
+      - targets: 
+          - 'raft-node-1:8081'
+          - 'raft-node-2:8082'
+          - 'raft-node-3:8083'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: 'raft-node-([0-9]+):.*'
+        target_label: node_id
+        replacement: '${1}'
+
+  # 自定义业务指标
+  - job_name: 'raft-business-metrics'
+    static_configs:
+      - targets: ['api-server:8080']
+    metrics_path: '/api/v1/monitoring/metrics'
+    scrape_interval: 30s
+    honor_labels: true
+
+  # Node Exporter - 系统指标监控
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: 
+          - 'node-exporter:9100'
+    scrape_interval: 15s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'kubernetes-node'
+
+  # cAdvisor - 容器指标监控
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+
+  # AlertManager自身监控
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
+    scrape_interval: 15s
+
+  # Grafana监控
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # JVM指标监控（详细）
+  - job_name: 'jvm-metrics'
+    static_configs:
+      - targets: ['api-server:8080']
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 15s
+    params:
+      format: ['prometheus']
+    metric_relabel_configs:
+      # 只保留JVM相关指标
+      - source_labels: [__name__]
+        regex: 'jvm_.*|process_.*|system_.*'
+        action: keep

@@ -1,0 +1,338 @@
+# API服务滚动更新配置
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raft-api-deployment
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    version: v1.9.0
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+    kubernetes.io/change-cause: "Initial deployment"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1        # 最多1个Pod不可用
+      maxSurge: 2              # 最多额外创建2个Pod
+  selector:
+    matchLabels:
+      app: raft-storage
+      component: api
+  template:
+    metadata:
+      labels:
+        app: raft-storage
+        component: api
+        version: v1.9.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/api/v1/actuator/prometheus"
+    spec:
+      serviceAccountName: raft-storage-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+      - name: api
+        image: raft-api:v1.9.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "kubernetes"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        - name: logs
+          mountPath: /app/logs
+        # 健康检查配置
+        livenessProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        # 启动探针（避免慢启动被杀死）
+        startupProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30
+          successThreshold: 1
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "300m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        # 优雅关闭配置
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - |
+                echo "Gracefully shutting down..."
+                # 等待当前请求完成
+                sleep 15
+                # 发送SIGTERM信号
+                kill -TERM 1
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: config
+        configMap:
+          name: raft-api-config
+      - name: logs
+        persistentVolumeClaim:
+          claimName: raft-api-logs
+      # Pod反亲和性，确保Pod分布在不同节点
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: component
+                  operator: In
+                  values:
+                  - api
+              topologyKey: kubernetes.io/hostname
+      # 容忍度配置
+      tolerations:
+      - key: node.kubernetes.io/not-ready
+        operator: Exists
+        effect: NoExecute
+        tolerationSeconds: 300
+      - key: node.kubernetes.io/unreachable
+        operator: Exists
+        effect: NoExecute
+        tolerationSeconds: 300
+
+---
+# Redis滚动更新配置
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-deployment
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: redis
+    version: v1.9.0
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0        # Redis不允许不可用
+      maxSurge: 1              # 先启动新实例再关闭旧实例
+  selector:
+    matchLabels:
+      app: raft-storage
+      component: redis
+  template:
+    metadata:
+      labels:
+        app: raft-storage
+        component: redis
+        version: v1.9.0
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - name: redis
+          containerPort: 6379
+        command:
+        - redis-server
+        - --appendonly
+        - "yes"
+        - --save
+        - "900 1"
+        - --save
+        - "300 10"
+        - --save
+        - "60 10000"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        livenessProbe:
+          tcpSocket:
+            port: 6379
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-data
+
+---
+# Raft节点滚动更新配置（StatefulSet）
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: raft-node-1
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: raft-node
+    node-id: "1"
+spec:
+  serviceName: raft-node-1-service
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0           # 从第0个Pod开始更新
+      maxUnavailable: 1      # StatefulSet中最多1个Pod不可用
+  selector:
+    matchLabels:
+      app: raft-storage
+      component: raft-node
+      node-id: "1"
+  template:
+    metadata:
+      labels:
+        app: raft-storage
+        component: raft-node
+        node-id: "1"
+        version: v1.9.0
+    spec:
+      containers:
+      - name: raft-node
+        image: raft-core:v1.9.0
+        ports:
+        - name: raft
+          containerPort: 8051
+        env:
+        - name: NODE_ID
+          value: "1"
+        - name: NODE_PORT
+          value: "8051"
+        - name: CLUSTER_NODES
+          value: "raft-node-1-service:8051,raft-node-2-service:8052,raft-node-3-service:8053"
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        - name: logs
+          mountPath: /app/logs
+        livenessProbe:
+          tcpSocket:
+            port: 8051
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 8051
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # Raft节点启动较慢，需要更长的启动时间
+        startupProbe:
+          tcpSocket:
+            port: 8051
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 18  # 最多等待3分钟
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        # 优雅关闭Raft节点
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - |
+                echo "Gracefully shutting down Raft node..."
+                # 这里可以添加Raft节点的优雅关闭逻辑
+                # 例如：转移Leader角色、同步数据等
+                sleep 30
+      terminationGracePeriodSeconds: 60
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 10Gi
+  - metadata:
+      name: logs
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 5Gi 

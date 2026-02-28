@@ -1,0 +1,117 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api/v1
+
+spring:
+  application:
+    name: raft-distributed-storage
+  
+  # Redis配置 - Docker环境
+  redis:
+    host: ${REDIS_HOST:redis}
+    port: ${REDIS_PORT:6379}
+    database: 0
+    timeout: 3000
+    lettuce:
+      pool:
+        max-active: 8
+        max-wait: -1
+        max-idle: 8
+        min-idle: 0
+  
+  # 文件上传配置
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+      enabled: true
+
+# Actuator监控端点配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: raft-distributed-storage
+      environment: docker
+
+# 日志配置 - Docker环境
+logging:
+  level:
+    com.github.raftimpl.raft: INFO
+    org.springframework: INFO
+    root: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: /app/logs/raft-api.log
+    max-size: 10MB
+    max-history: 30
+
+# Raft集群配置 - Docker环境
+raft:
+  cluster:
+    nodes:
+      - id: 1
+        host: raft-node-1
+        port: 8051
+      - id: 2
+        host: raft-node-2
+        port: 8052
+      - id: 3
+        host: raft-node-3
+        port: 8053
+  
+  # 数据存储路径
+  data:
+    path: /app/data
+  
+  # 选举超时时间(ms)
+  election-timeout: 5000
+  
+  # 心跳间隔时间(ms)
+  heartbeat-interval: 1000
+
+# Swagger配置
+swagger:
+  enabled: true
+  title: 分布式存储系统API
+  description: 基于Raft算法的分布式存储系统RESTful API (Docker环境)
+  version: 1.9.0
+  contact:
+    name: raft-java
+    email: 1367016356@qq.com
+
+# JWT配置
+jwt:
+  secret: raft-distributed-storage-jwt-secret-key-2025-docker
+  expiration: 86400000  # 24小时
+
+# 限流配置
+rate-limit:
+  enabled: true
+  requests-per-second: 100
+  burst-capacity: 200
+
+# 熔断器配置
+resilience4j:
+  circuitbreaker:
+    instances:
+      raft-service:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 5s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 10

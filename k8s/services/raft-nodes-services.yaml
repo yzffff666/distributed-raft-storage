@@ -1,0 +1,56 @@
+# Raft Node 1 Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-node-1-service
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-1
+    app.kubernetes.io/component: raft-core
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8051
+    targetPort: 8051
+    protocol: TCP
+    name: raft
+  selector:
+    app.kubernetes.io/name: raft-node-1
+---
+# Raft Node 2 Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-node-2-service
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-2
+    app.kubernetes.io/component: raft-core
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8052
+    targetPort: 8052
+    protocol: TCP
+    name: raft
+  selector:
+    app.kubernetes.io/name: raft-node-2
+---
+# Raft Node 3 Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-node-3-service
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-3
+    app.kubernetes.io/component: raft-core
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8053
+    targetPort: 8053
+    protocol: TCP
+    name: raft
+  selector:
+    app.kubernetes.io/name: raft-node-3

@@ -1,0 +1,106 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: raft-api-config
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-api
+    app.kubernetes.io/component: configmap
+data:
+  application.yml: |
+    server:
+      port: 8080
+      servlet:
+        context-path: /api/v1
+    
+    spring:
+      application:
+        name: raft-distributed-storage
+      redis:
+        host: redis-service
+        port: 6379
+        database: 0
+        timeout: 3000ms
+        lettuce:
+          pool:
+            max-active: 8
+            max-wait: -1ms
+            max-idle: 8
+            min-idle: 0
+      servlet:
+        multipart:
+          max-file-size: 100MB
+          max-request-size: 100MB
+          enabled: true
+    
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health,info,metrics,prometheus
+      endpoint:
+        health:
+          show-details: always
+      metrics:
+        export:
+          prometheus:
+            enabled: true
+        tags:
+          application: raft-distributed-storage
+          environment: kubernetes
+    
+    logging:
+      level:
+        com.github.raftimpl.raft: INFO
+        org.springframework: INFO
+        root: INFO
+      pattern:
+        console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    
+    raft:
+      cluster:
+        nodes:
+          - id: 1
+            host: raft-node-1-service
+            port: 8051
+          - id: 2
+            host: raft-node-2-service
+            port: 8052
+          - id: 3
+            host: raft-node-3-service
+            port: 8053
+      data:
+        path: /app/data
+      election-timeout: 5000
+      heartbeat-interval: 1000
+    
+    swagger:
+      enabled: true
+      title: 分布式存储系统API
+      description: 基于Raft算法的分布式存储系统RESTful API (Kubernetes环境)
+      version: 1.9.0
+      contact:
+        name: raft-java
+        email: 1367016356@qq.com
+    
+    jwt:
+      secret: ${JWT_SECRET:raft-distributed-storage-jwt-secret-key-2025-k8s}
+      expiration: 86400000
+    
+    rate-limit:
+      enabled: true
+      requests-per-second: 100
+      burst-capacity: 200
+    
+    resilience4j:
+      circuitbreaker:
+        instances:
+          raft-service:
+            registerHealthIndicator: true
+            slidingWindowSize: 10
+            minimumNumberOfCalls: 5
+            permittedNumberOfCallsInHalfOpenState: 3
+            automaticTransitionFromOpenToHalfOpenEnabled: true
+            waitDurationInOpenState: 5s
+            failureRateThreshold: 50
+            eventConsumerBufferSize: 10

@@ -1,0 +1,98 @@
+# Raft Node 1 PVCs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: raft-node-1-data-pvc
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-1
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: raft-node-1-logs-pvc
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-1
+    app.kubernetes.io/component: logs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+---
+# Raft Node 2 PVCs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: raft-node-2-data-pvc
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-2
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: raft-node-2-logs-pvc
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-2
+    app.kubernetes.io/component: logs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+---
+# Raft Node 3 PVCs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: raft-node-3-data-pvc
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-3
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: raft-node-3-logs-pvc
+  namespace: raft-storage
+  labels:
+    app.kubernetes.io/name: raft-node-3
+    app.kubernetes.io/component: logs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard

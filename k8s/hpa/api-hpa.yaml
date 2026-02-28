@@ -1,0 +1,121 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: raft-api-hpa
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    version: v1.9.0
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: raft-api-deployment
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  # CPU利用率指标
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  # 内存利用率指标
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  # 自定义指标 - API请求QPS
+  - type: Pods
+    pods:
+      metric:
+        name: http_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "50"
+  # 自定义指标 - API响应时间
+  - type: Pods
+    pods:
+      metric:
+        name: http_request_duration_seconds
+      target:
+        type: AverageValue
+        averageValue: "0.5"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # 5分钟稳定窗口
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60  # 每分钟最多缩容50%
+      - type: Pods
+        value: 2
+        periodSeconds: 60  # 每分钟最多缩容2个Pod
+      selectPolicy: Min  # 选择最保守的策略
+    scaleUp:
+      stabilizationWindowSeconds: 60   # 1分钟稳定窗口
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15  # 每15秒最多扩容100%
+      - type: Pods
+        value: 4
+        periodSeconds: 15  # 每15秒最多扩容4个Pod
+      selectPolicy: Max  # 选择最激进的策略
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: raft-redis-hpa
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: redis
+    version: v1.9.0
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: redis-deployment
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  # CPU利用率指标
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80
+  # 内存利用率指标
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 85
+  # 自定义指标 - Redis连接数
+  - type: Pods
+    pods:
+      metric:
+        name: redis_connected_clients
+      target:
+        type: AverageValue
+        averageValue: "100"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600  # 10分钟稳定窗口，Redis缩容要更谨慎
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 120  # 每2分钟最多缩容1个Pod
+    scaleUp:
+      stabilizationWindowSeconds: 120  # 2分钟稳定窗口
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60   # 每分钟最多扩容1个Pod 

@@ -1,0 +1,129 @@
+{{- if .Values.raft.enabled }}
+{{- range .Values.raft.nodes }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "raft-storage.fullname" $ }}-raft-node-{{ .id }}
+  namespace: {{ $.Values.namespace.name }}
+  labels:
+    {{- include "raft-storage.labels" $ | nindent 4 }}
+    component: raft-node
+    node-id: "{{ .id }}"
+spec:
+  serviceName: {{ include "raft-storage.fullname" $ }}-raft-node-{{ .id }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "raft-storage.selectorLabels" $ | nindent 6 }}
+      component: raft-node
+      node-id: "{{ .id }}"
+  template:
+    metadata:
+      labels:
+        {{- include "raft-storage.selectorLabels" $ | nindent 8 }}
+        component: raft-node
+        node-id: "{{ .id }}"
+    spec:
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "raft-storage.serviceAccountName" $ }}
+      securityContext:
+        {{- toYaml $.Values.securityContext | nindent 8 }}
+      containers:
+        - name: raft-node
+          image: "{{ $.Values.global.imageRegistry }}{{ $.Values.raft.image.repository }}:{{ $.Values.raft.image.tag }}"
+          imagePullPolicy: {{ $.Values.raft.image.pullPolicy }}
+          ports:
+            - name: raft
+              containerPort: {{ .port }}
+              protocol: TCP
+          env:
+            - name: NODE_ID
+              value: "{{ .id }}"
+            - name: NODE_PORT
+              value: "{{ .port }}"
+            - name: CLUSTER_NODES
+              value: "{{ range $i, $node := $.Values.raft.nodes }}{{ if $i }},{{ end }}{{ include "raft-storage.fullname" $ }}-raft-node-{{ $node.id }}:{{ $node.port }}{{ end }}"
+            - name: DATA_PATH
+              value: {{ $.Values.raft.config.dataPath }}
+            - name: ELECTION_TIMEOUT
+              value: "{{ $.Values.raft.config.electionTimeout }}"
+            - name: HEARTBEAT_INTERVAL
+              value: "{{ $.Values.raft.config.heartbeatInterval }}"
+          volumeMounts:
+            - name: data
+              mountPath: {{ $.Values.raft.config.dataPath }}
+            - name: logs
+              mountPath: /app/logs
+          livenessProbe:
+            tcpSocket:
+              port: {{ .port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: {{ .port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml $.Values.raft.resources | nindent 12 }}
+      {{- with $.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    {{- if $.Values.raft.persistence.data.enabled }}
+    - metadata:
+        name: data
+        labels:
+          {{- include "raft-storage.labels" $ | nindent 10 }}
+          component: raft-node
+          node-id: "{{ .id }}"
+      spec:
+        accessModes:
+          - {{ $.Values.raft.persistence.data.accessMode }}
+        {{- if $.Values.raft.persistence.data.storageClass }}
+        storageClassName: {{ $.Values.raft.persistence.data.storageClass }}
+        {{- else if $.Values.global.storageClass }}
+        storageClassName: {{ $.Values.global.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $.Values.raft.persistence.data.size }}
+    {{- end }}
+    {{- if $.Values.raft.persistence.logs.enabled }}
+    - metadata:
+        name: logs
+        labels:
+          {{- include "raft-storage.labels" $ | nindent 10 }}
+          component: raft-node
+          node-id: "{{ .id }}"
+      spec:
+        accessModes:
+          - {{ $.Values.raft.persistence.logs.accessMode }}
+        {{- if $.Values.raft.persistence.logs.storageClass }}
+        storageClassName: {{ $.Values.raft.persistence.logs.storageClass }}
+        {{- else if $.Values.global.storageClass }}
+        storageClassName: {{ $.Values.global.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $.Values.raft.persistence.logs.size }}
+    {{- end }}
+{{- end }}
+{{- end }}

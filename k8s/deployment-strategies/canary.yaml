@@ -1,0 +1,348 @@
+# 金丝雀发布 - 稳定版本
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raft-api-stable
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    version: v1.9.0
+    track: stable
+spec:
+  replicas: 9  # 90%的流量
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 2
+  selector:
+    matchLabels:
+      app: raft-storage
+      component: api
+      track: stable
+  template:
+    metadata:
+      labels:
+        app: raft-storage
+        component: api
+        version: v1.9.0
+        track: stable
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/api/v1/actuator/prometheus"
+    spec:
+      serviceAccountName: raft-storage-sa
+      containers:
+      - name: api
+        image: raft-api:v1.9.0
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "kubernetes,stable"
+        - name: TRACK
+          value: "stable"
+        - name: VERSION
+          value: "v1.9.0"
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "300m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: config
+        configMap:
+          name: raft-api-config
+
+---
+# 金丝雀发布 - 金丝雀版本
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raft-api-canary
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    version: v1.10.0
+    track: canary
+spec:
+  replicas: 1  # 10%的流量
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: raft-storage
+      component: api
+      track: canary
+  template:
+    metadata:
+      labels:
+        app: raft-storage
+        component: api
+        version: v1.10.0
+        track: canary
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/api/v1/actuator/prometheus"
+    spec:
+      serviceAccountName: raft-storage-sa
+      containers:
+      - name: api
+        image: raft-api:v1.10.0  # 新版本
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "kubernetes,canary"
+        - name: TRACK
+          value: "canary"
+        - name: VERSION
+          value: "v1.10.0"
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/v1/monitoring/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "300m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: config
+        configMap:
+          name: raft-api-config
+
+---
+# 统一Service（同时指向稳定版和金丝雀版）
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-api-service
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: raft-storage
+    component: api
+    # 不指定track，同时包含stable和canary
+
+---
+# 稳定版专用Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-api-service-stable
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    track: stable
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: raft-storage
+    component: api
+    track: stable
+
+---
+# 金丝雀版专用Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-api-service-canary
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+    track: canary
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: raft-storage
+    component: api
+    track: canary
+
+---
+# Istio VirtualService（用于流量分割）
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: raft-api-vs
+  namespace: raft-storage
+spec:
+  hosts:
+  - raft-api-service
+  http:
+  - match:
+    - headers:
+        canary:
+          exact: "true"
+    route:
+    - destination:
+        host: raft-api-service-canary
+        port:
+          number: 80
+  - route:
+    - destination:
+        host: raft-api-service-stable
+        port:
+          number: 80
+      weight: 90
+    - destination:
+        host: raft-api-service-canary
+        port:
+          number: 80
+      weight: 10
+
+---
+# Istio DestinationRule
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: raft-api-dr
+  namespace: raft-storage
+spec:
+  host: raft-api-service
+  subsets:
+  - name: stable
+    labels:
+      track: stable
+  - name: canary
+    labels:
+      track: canary
+  trafficPolicy:
+    loadBalancer:
+      simple: LEAST_CONN
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        http1MaxPendingRequests: 50
+        maxRequestsPerConnection: 10
+    circuitBreaker:
+      consecutiveErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+
+---
+# Flagger Canary配置（自动化金丝雀发布）
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: raft-api-canary
+  namespace: raft-storage
+spec:
+  # 目标部署
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: raft-api-stable
+  # 进度检查超时
+  progressDeadlineSeconds: 60
+  # HPA引用
+  autoscalerRef:
+    apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+    name: raft-api-hpa
+  service:
+    # 服务端口
+    port: 80
+    targetPort: 8080
+    # 网关配置
+    gateways:
+    - raft-api-gateway
+    hosts:
+    - raft-api.local
+  analysis:
+    # 分析间隔
+    interval: 1m
+    # 分析阈值
+    threshold: 5
+    # 最大权重
+    maxWeight: 50
+    # 权重步长
+    stepWeight: 10
+    # 成功率阈值
+    metrics:
+    - name: request-success-rate
+      thresholdRange:
+        min: 99
+      interval: 1m
+    - name: request-duration
+      thresholdRange:
+        max: 500
+      interval: 30s
+    # Webhook测试
+    webhooks:
+    - name: acceptance-test
+      type: pre-rollout
+      url: http://flagger-loadtester.test/
+      timeout: 30s
+      metadata:
+        type: bash
+        cmd: "curl -sd 'test' http://raft-api-canary.raft-storage/api/v1/monitoring/health | grep OK"
+    - name: load-test
+      url: http://flagger-loadtester.test/
+      timeout: 5s
+      metadata:
+        cmd: "hey -z 1m -q 10 -c 2 http://raft-api-canary.raft-storage/api/v1/monitoring/health" 

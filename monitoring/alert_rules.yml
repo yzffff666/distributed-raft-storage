@@ -1,0 +1,304 @@
+groups:
+  # 系统级告警
+  - name: system.rules
+    rules:
+      # 高CPU使用率告警
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "高CPU使用率告警"
+          description: "实例 {{ $labels.instance }} CPU使用率超过80%，当前值: {{ $value }}%"
+
+      # 高内存使用率告警
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "高内存使用率告警"
+          description: "实例 {{ $labels.instance }} 内存使用率超过85%，当前值: {{ $value }}%"
+
+      # 磁盘空间不足告警
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "磁盘空间不足告警"
+          description: "实例 {{ $labels.instance }} 磁盘 {{ $labels.mountpoint }} 使用率超过85%，当前值: {{ $value }}%"
+
+      # 磁盘空间严重不足告警
+      - alert: DiskSpaceCritical
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "磁盘空间严重不足告警"
+          description: "实例 {{ $labels.instance }} 磁盘 {{ $labels.mountpoint }} 使用率超过95%，当前值: {{ $value }}%"
+
+  # 应用级告警
+  - name: application.rules
+    rules:
+      # 应用服务不可用告警
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: application
+        annotations:
+          summary: "服务不可用告警"
+          description: "服务 {{ $labels.job }} 实例 {{ $labels.instance }} 已宕机超过1分钟"
+
+      # API响应时间过长告警
+      - alert: HighAPIResponseTime
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="raft-api"}[5m])) by (le)) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: application
+        annotations:
+          summary: "API响应时间过长告警"
+          description: "API服务95%响应时间超过1秒，当前值: {{ $value }}秒"
+
+      # API错误率过高告警
+      - alert: HighAPIErrorRate
+        expr: sum(rate(http_requests_total{job="raft-api",status=~"5.."}[5m])) / sum(rate(http_requests_total{job="raft-api"}[5m])) * 100 > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: application
+        annotations:
+          summary: "API错误率过高告警"
+          description: "API服务5xx错误率超过5%，当前值: {{ $value }}%"
+
+      # JVM内存使用率过高告警
+      - alert: HighJVMMemoryUsage
+        expr: jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: application
+        annotations:
+          summary: "JVM堆内存使用率过高告警"
+          description: "应用 {{ $labels.job }} JVM堆内存使用率超过85%，当前值: {{ $value }}%"
+
+      # JVM垃圾回收时间过长告警
+      - alert: HighJVMGCTime
+        expr: increase(jvm_gc_collection_seconds_sum[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: application
+        annotations:
+          summary: "JVM垃圾回收时间过长告警"
+          description: "应用 {{ $labels.job }} 5分钟内GC时间超过1秒，当前值: {{ $value }}秒"
+
+  # Redis告警
+  - name: redis.rules
+    rules:
+      # Redis不可用告警
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: database
+        annotations:
+          summary: "Redis服务不可用告警"
+          description: "Redis实例 {{ $labels.instance }} 已宕机超过1分钟"
+
+      # Redis内存使用率过高告警
+      - alert: RedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: database
+        annotations:
+          summary: "Redis内存使用率过高告警"
+          description: "Redis实例 {{ $labels.instance }} 内存使用率超过85%，当前值: {{ $value }}%"
+
+      # Redis连接数过多告警
+      - alert: RedisHighConnections
+        expr: redis_connected_clients > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: database
+        annotations:
+          summary: "Redis连接数过多告警"
+          description: "Redis实例 {{ $labels.instance }} 连接数超过1000，当前值: {{ $value }}"
+
+      # Redis缓存命中率过低告警
+      - alert: RedisLowCacheHitRate
+        expr: redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total) * 100 < 80
+        for: 10m
+        labels:
+          severity: warning
+          team: database
+        annotations:
+          summary: "Redis缓存命中率过低告警"
+          description: "Redis实例 {{ $labels.instance }} 缓存命中率低于80%，当前值: {{ $value }}%"
+
+  # Raft集群告警
+  - name: raft.rules
+    rules:
+      # Raft节点不可用告警
+      - alert: RaftNodeDown
+        expr: up{job="raft-nodes"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: storage
+        annotations:
+          summary: "Raft节点不可用告警"
+          description: "Raft节点 {{ $labels.node_id }} 已宕机超过1分钟"
+
+      # Raft集群无Leader告警
+      - alert: RaftNoLeader
+        expr: sum(raft_leader_status) == 0
+        for: 30s
+        labels:
+          severity: critical
+          team: storage
+        annotations:
+          summary: "Raft集群无Leader告警"
+          description: "Raft集群当前没有Leader节点，集群不可用"
+
+      # Raft集群脑裂告警
+      - alert: RaftSplitBrain
+        expr: sum(raft_leader_status) > 1
+        for: 30s
+        labels:
+          severity: critical
+          team: storage
+        annotations:
+          summary: "Raft集群脑裂告警"
+          description: "Raft集群出现多个Leader节点，当前Leader数量: {{ $value }}"
+
+      # Raft日志复制延迟过高告警
+      - alert: RaftHighLogReplicationDelay
+        expr: raft_log_replication_delay_seconds > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: storage
+        annotations:
+          summary: "Raft日志复制延迟过高告警"
+          description: "Raft节点 {{ $labels.node_id }} 日志复制延迟超过1秒，当前值: {{ $value }}秒"
+
+  # 业务指标告警
+  - name: business.rules
+    rules:
+      # 存储操作QPS过高告警
+      - alert: HighStorageQPS
+        expr: sum(rate(storage_operations_total[5m])) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: business
+        annotations:
+          summary: "存储操作QPS过高告警"
+          description: "存储操作QPS超过1000，当前值: {{ $value }}/s"
+
+      # 存储操作失败率过高告警
+      - alert: HighStorageFailureRate
+        expr: sum(rate(storage_operations_total{status="failed"}[5m])) / sum(rate(storage_operations_total[5m])) * 100 > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: business
+        annotations:
+          summary: "存储操作失败率过高告警"
+          description: "存储操作失败率超过1%，当前值: {{ $value }}%"
+
+      # 存储容量不足告警
+      - alert: StorageCapacityLow
+        expr: storage_capacity_used_bytes / storage_capacity_total_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: business
+        annotations:
+          summary: "存储容量不足告警"
+          description: "存储容量使用率超过85%，当前值: {{ $value }}%"
+
+      # 限流触发告警
+      - alert: RateLimitTriggered
+        expr: increase(rate_limit_rejected_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: business
+        annotations:
+          summary: "限流触发告警"
+          description: "5分钟内限流拒绝请求超过100次，当前值: {{ $value }}"
+
+      # 熔断器开启告警
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state == 1
+        for: 1m
+        labels:
+          severity: warning
+          team: business
+        annotations:
+          summary: "熔断器开启告警"
+          description: "服务 {{ $labels.service }} 熔断器已开启，服务不可用"
+
+  # 监控系统告警
+  - name: monitoring.rules
+    rules:
+      # Prometheus目标不可达告警
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: monitoring
+        annotations:
+          summary: "Prometheus监控目标不可达告警"
+          description: "Prometheus无法采集目标 {{ $labels.job }} 的指标，实例: {{ $labels.instance }}"
+
+      # Prometheus配置重载失败告警
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: monitoring
+        annotations:
+          summary: "Prometheus配置重载失败告警"
+          description: "Prometheus配置重载失败，请检查配置文件"
+
+      # AlertManager不可用告警
+      - alert: AlertManagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: monitoring
+        annotations:
+          summary: "AlertManager不可用告警"
+          description: "AlertManager服务不可用，告警通知将无法发送"
+
+      # Grafana不可用告警
+      - alert: GrafanaDown
+        expr: up{job="grafana"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: monitoring
+        annotations:
+          summary: "Grafana不可用告警"
+          description: "Grafana服务不可用，监控面板无法访问" 

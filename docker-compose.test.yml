@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Redis for testing
+  redis:
+    image: redis:6.2-alpine
+    container_name: test-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - test-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - test-network
+
+  # PostgreSQL for testing (if needed)
+  postgres:
+    image: postgres:13-alpine
+    container_name: test-postgres
+    environment:
+      POSTGRES_DB: raft_test
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - test-postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d raft_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - test-network
+
+  # Test database setup
+  test-setup:
+    image: alpine:latest
+    container_name: test-setup
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: |
+      sh -c "
+        echo 'Setting up test environment...'
+        echo 'Redis is ready'
+        echo 'PostgreSQL is ready'
+        echo 'Test environment setup complete'
+      "
+    networks:
+      - test-network
+
+volumes:
+  test-redis-data:
+    driver: local
+  test-postgres-data:
+    driver: local
+
+networks:
+  test-network:
+    driver: bridge
+    name: raft-test-network 

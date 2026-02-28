@@ -1,0 +1,21 @@
+{{- if and .Values.api.enabled .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "raft-storage.fullname" . }}-api-pdb
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "raft-storage.labels" . | nindent 4 }}
+    component: api
+spec:
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "raft-storage.selectorLabels" . | nindent 6 }}
+      component: api
+{{- end }}

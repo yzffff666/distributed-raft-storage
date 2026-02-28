@@ -1,0 +1,96 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "raft-storage.fullname" . }}-api-config
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "raft-storage.labels" . | nindent 4 }}
+    component: api
+data:
+  application.yml: |
+    server:
+      port: 8080
+      servlet:
+        context-path: /api/v1
+    
+    spring:
+      application:
+        name: raft-storage-api
+      profiles:
+        active: kubernetes
+      
+      redis:
+        host: {{ include "raft-storage.fullname" . }}-redis-master
+        port: 6379
+        database: 0
+        timeout: 2000ms
+        lettuce:
+          pool:
+            max-active: 20
+            max-idle: 10
+            min-idle: 5
+    
+    # JWT Configuration
+    jwt:
+      secret: {{ .Values.api.config.jwt.secret }}
+      expiration: {{ .Values.api.config.jwt.expiration }}
+    
+    # Rate Limiting Configuration
+    rate-limit:
+      enabled: {{ .Values.api.config.rateLimit.enabled }}
+      requests-per-second: {{ .Values.api.config.rateLimit.requestsPerSecond }}
+      burst-capacity: {{ .Values.api.config.rateLimit.burstCapacity }}
+    
+    # Circuit Breaker Configuration
+    resilience4j:
+      circuitbreaker:
+        instances:
+          raftService:
+            sliding-window-size: {{ .Values.api.config.circuitBreaker.slidingWindowSize }}
+            minimum-number-of-calls: {{ .Values.api.config.circuitBreaker.minimumNumberOfCalls }}
+            failure-rate-threshold: {{ .Values.api.config.circuitBreaker.failureRateThreshold }}
+            wait-duration-in-open-state: 30s
+            permitted-number-of-calls-in-half-open-state: 3
+    
+    # Raft Configuration
+    raft:
+      nodes:
+        {{- range .Values.raft.nodes }}
+        - host: {{ include "raft-storage.fullname" $ }}-raft-node-{{ .id }}
+          port: {{ .port }}
+        {{- end }}
+      election-timeout: {{ .Values.raft.config.electionTimeout }}
+      heartbeat-interval: {{ .Values.raft.config.heartbeatInterval }}
+    
+    # Management endpoints
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health,info,metrics,prometheus
+      endpoint:
+        health:
+          show-details: always
+      metrics:
+        export:
+          prometheus:
+            enabled: true
+      server:
+        port: 8080
+        servlet:
+          context-path: /api/v1/actuator
+    
+    # Logging configuration
+    logging:
+      level:
+        com.github.raftimpl: INFO
+        org.springframework.security: DEBUG
+      pattern:
+        console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{requestId}] %logger{36} - %msg%n"
+        file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{requestId}] %logger{36} - %msg%n"
+      file:
+        name: /app/logs/raft-api.log
+        max-size: 100MB
+        max-history: 30
+{{- end }}

@@ -1,0 +1,171 @@
+# 测试环境配置
+global:
+  imageRegistry: "harbor.example.com"
+  imageTag: "stable"
+  environment: "testing"
+  namespace: "raft-storage-test"
+
+# API服务配置
+api:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: harbor.example.com/raft-storage/api
+    tag: "stable"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  
+  service:
+    type: ClusterIP
+    port: 8080
+  
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: test.raft-storage.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: raft-storage-tls
+        hosts:
+          - test.raft-storage.local
+  
+  env:
+    SPRING_PROFILES_ACTIVE: "test"
+    LOG_LEVEL: "INFO"
+    REDIS_HOST: "redis"
+    REDIS_PORT: "6379"
+
+# Raft核心服务配置
+raftCore:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: harbor.example.com/raft-storage/raft-core
+    tag: "stable"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  
+  persistence:
+    enabled: true
+    storageClass: "fast-ssd"
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+# Redis配置
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: "redis123"
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi
+      storageClass: "fast-ssd"
+  replica:
+    replicaCount: 2
+
+# Prometheus监控
+prometheus:
+  enabled: true
+  server:
+    persistentVolume:
+      enabled: true
+      size: 20Gi
+      storageClass: "fast-ssd"
+    retention: "15d"
+  alertmanager:
+    enabled: true
+    persistentVolume:
+      enabled: true
+      size: 2Gi
+
+# Grafana可视化
+grafana:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: "fast-ssd"
+  adminPassword: "grafana123"
+  
+  # 配置数据源
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-server:80
+          access: proxy
+          isDefault: true
+
+# 自动扩缩容
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# 网络策略
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+
+# 安全配置
+security:
+  podSecurityPolicy:
+    enabled: true
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  
+  # 资源配额
+  resourceQuota:
+    enabled: true
+    hard:
+      requests.cpu: "2"
+      requests.memory: "4Gi"
+      limits.cpu: "4"
+      limits.memory: "8Gi"
+      persistentvolumeclaims: "10"
+
+# 备份配置
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retention: "7d"
+  storage:
+    type: "s3"
+    bucket: "raft-storage-backup"
+    region: "us-west-2" 

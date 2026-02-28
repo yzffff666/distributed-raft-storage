@@ -1,0 +1,211 @@
+# DestinationRule配置 - API服务
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: raft-api-dr
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+spec:
+  host: raft-api-service
+  trafficPolicy:
+    # 负载均衡策略
+    loadBalancer:
+      simple: LEAST_CONN  # 最少连接数负载均衡
+    # 连接池配置
+    connectionPool:
+      tcp:
+        maxConnections: 100        # 最大连接数
+        connectTimeout: 30s        # 连接超时
+        keepAlive:
+          time: 7200s             # TCP keepalive时间
+          interval: 75s           # keepalive探测间隔
+      http:
+        http1MaxPendingRequests: 50    # HTTP1最大挂起请求数
+        http2MaxRequests: 100          # HTTP2最大请求数
+        maxRequestsPerConnection: 10   # 每连接最大请求数
+        maxRetries: 3                  # 最大重试次数
+        consecutiveGatewayErrors: 5    # 连续网关错误数
+        interval: 30s                  # 错误检测间隔
+        baseEjectionTime: 30s          # 基础驱逐时间
+        maxEjectionPercent: 50         # 最大驱逐百分比
+        minHealthPercent: 30           # 最小健康百分比
+    # 熔断器配置
+    circuitBreaker:
+      consecutiveErrors: 5         # 连续错误数触发熔断
+      interval: 30s               # 熔断检测间隔
+      baseEjectionTime: 30s       # 基础驱逐时间
+      maxEjectionPercent: 50      # 最大驱逐百分比
+      minHealthPercent: 50        # 最小健康百分比
+    # 异常检测配置
+    outlierDetection:
+      consecutive5xxErrors: 5      # 连续5xx错误数
+      consecutiveGatewayErrors: 5  # 连续网关错误数
+      interval: 30s               # 检测间隔
+      baseEjectionTime: 30s       # 基础驱逐时间
+      maxEjectionPercent: 50      # 最大驱逐百分比
+      minHealthPercent: 50        # 最小健康百分比
+  # 子集配置（用于金丝雀发布）
+  subsets:
+  - name: stable
+    labels:
+      version: stable
+    trafficPolicy:
+      loadBalancer:
+        simple: ROUND_ROBIN
+  - name: canary
+    labels:
+      version: canary
+    trafficPolicy:
+      loadBalancer:
+        simple: ROUND_ROBIN
+
+---
+# DestinationRule配置 - Redis服务
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: redis-dr
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: redis
+spec:
+  host: redis-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      tcp:
+        maxConnections: 50
+        connectTimeout: 10s
+        keepAlive:
+          time: 7200s
+          interval: 75s
+    # Redis特定的熔断器配置
+    circuitBreaker:
+      consecutiveErrors: 3
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+      minHealthPercent: 50
+
+---
+# DestinationRule配置 - Raft节点服务
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: raft-nodes-dr
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: raft-node
+spec:
+  host: "*.raft-storage.svc.cluster.local"
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      tcp:
+        maxConnections: 30
+        connectTimeout: 10s
+        keepAlive:
+          time: 7200s
+          interval: 75s
+    # Raft节点特定配置
+    circuitBreaker:
+      consecutiveErrors: 3
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 33  # Raft需要至少2/3节点可用
+      minHealthPercent: 67
+
+---
+# DestinationRule配置 - Prometheus服务
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: prometheus-dr
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: monitoring
+spec:
+  host: prometheus-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      tcp:
+        maxConnections: 20
+        connectTimeout: 10s
+      http:
+        http1MaxPendingRequests: 10
+        maxRequestsPerConnection: 5
+
+---
+# DestinationRule配置 - Grafana服务
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: grafana-dr
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: monitoring
+spec:
+  host: grafana-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      tcp:
+        maxConnections: 20
+        connectTimeout: 10s
+      http:
+        http1MaxPendingRequests: 10
+        maxRequestsPerConnection: 5
+
+---
+# DestinationRule配置 - 全局默认策略
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: default-dr
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: default
+spec:
+  host: "*.raft-storage.svc.cluster.local"
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      tcp:
+        maxConnections: 50
+        connectTimeout: 30s
+        keepAlive:
+          time: 7200s
+          interval: 75s
+      http:
+        http1MaxPendingRequests: 20
+        http2MaxRequests: 50
+        maxRequestsPerConnection: 10
+        maxRetries: 3
+    # 默认熔断器配置
+    circuitBreaker:
+      consecutiveErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+      minHealthPercent: 50
+    # 默认异常检测配置
+    outlierDetection:
+      consecutive5xxErrors: 5
+      consecutiveGatewayErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+      minHealthPercent: 50 

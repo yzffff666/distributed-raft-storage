@@ -1,0 +1,268 @@
+# Default values for raft-storage.
+# This is a YAML-formatted file.
+
+# Global configuration
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: "standard"
+
+# Namespace configuration
+namespace:
+  create: true
+  name: raft-storage
+
+# API Service configuration
+api:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: raft-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 8080
+    
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+      nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    hosts:
+      - host: raft-api.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "300m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  
+  livenessProbe:
+    httpGet:
+      path: /api/v1/monitoring/health
+      port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /api/v1/monitoring/health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  # Environment variables
+  env:
+    SPRING_PROFILES_ACTIVE: kubernetes
+  
+  # Config and secrets
+  config:
+    # JWT configuration
+    jwt:
+      secret: raft-distributed-storage-jwt-secret-key-2025-k8s
+      expiration: 86400000
+    
+    # Rate limiting
+    rateLimit:
+      enabled: true
+      requestsPerSecond: 100
+      burstCapacity: 200
+    
+    # Circuit breaker
+    circuitBreaker:
+      slidingWindowSize: 10
+      minimumNumberOfCalls: 5
+      failureRateThreshold: 50
+  
+  # Persistent volume for logs
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteMany
+    size: 5Gi
+
+# Raft Cluster configuration
+raft:
+  enabled: true
+  nodes:
+    - id: 1
+      port: 8051
+    - id: 2
+      port: 8052
+    - id: 3
+      port: 8053
+  
+  image:
+    repository: raft-core
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  # Persistent volume for data
+  persistence:
+    data:
+      enabled: true
+      storageClass: ""
+      accessMode: ReadWriteOnce
+      size: 10Gi
+    logs:
+      enabled: true
+      storageClass: ""
+      accessMode: ReadWriteOnce
+      size: 5Gi
+  
+  # Raft configuration
+  config:
+    electionTimeout: 5000
+    heartbeatInterval: 1000
+    dataPath: /app/data
+
+# Redis configuration
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  
+  prometheus:
+    enabled: true
+    server:
+      persistentVolume:
+        enabled: true
+        size: 20Gi
+      resources:
+        requests:
+          memory: "512Mi"
+          cpu: "200m"
+        limits:
+          memory: "1Gi"
+          cpu: "500m"
+      service:
+        type: NodePort
+        nodePort: 30090
+    
+    # Custom scrape configs
+    extraScrapeConfigs: |
+      - job_name: 'raft-api'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - {{ .Values.namespace.name }}
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: raft-api-service
+        metrics_path: '/api/v1/actuator/prometheus'
+        scrape_interval: 10s
+      
+      - job_name: 'raft-business-metrics'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - {{ .Values.namespace.name }}
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: raft-api-service
+        metrics_path: '/api/v1/monitoring/metrics'
+        scrape_interval: 30s
+  
+  grafana:
+    enabled: true
+    admin:
+      password: admin123
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "300m"
+    service:
+      type: NodePort
+      nodePort: 30300
+    
+    # Grafana configuration
+    grafana.ini:
+      users:
+        allow_sign_up: false
+      security:
+        admin_password: admin123
+
+# Autoscaling configuration
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Network Policy
+networkPolicy:
+  enabled: false
+
+# Service Account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Security Context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}

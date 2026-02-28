@@ -1,0 +1,179 @@
+# Prometheus Adapter配置，用于暴露自定义指标给HPA
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adapter-config
+  namespace: custom-metrics
+data:
+  config.yaml: |
+    rules:
+    # API请求速率指标
+    - seriesQuery: 'http_requests_total{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^http_requests_total"
+        as: "http_requests_per_second"
+      metricsQuery: 'rate(<<.Series>>{<<.LabelMatchers>>}[2m])'
+    
+    # API响应时间指标
+    - seriesQuery: 'http_request_duration_seconds{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^http_request_duration_seconds"
+        as: "http_request_duration_seconds"
+      metricsQuery: 'histogram_quantile(0.95, rate(<<.Series>>_bucket{<<.LabelMatchers>>}[2m]))'
+    
+    # Redis连接数指标
+    - seriesQuery: 'redis_connected_clients{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^redis_connected_clients"
+        as: "redis_connected_clients"
+      metricsQuery: '<<.Series>>{<<.LabelMatchers>>}'
+    
+    # Raft存储指标
+    - seriesQuery: 'raft_storage_operations_total{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^raft_storage_operations_total"
+        as: "raft_storage_operations_per_second"
+      metricsQuery: 'rate(<<.Series>>{<<.LabelMatchers>>}[2m])'
+    
+    # 缓存命中率指标
+    - seriesQuery: 'cache_hit_ratio{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^cache_hit_ratio"
+        as: "cache_hit_ratio"
+      metricsQuery: '<<.Series>>{<<.LabelMatchers>>}'
+
+---
+# ServiceMonitor用于Prometheus采集自定义指标
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: raft-api-metrics
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+spec:
+  selector:
+    matchLabels:
+      app: raft-storage
+      component: api
+  endpoints:
+  - port: http
+    path: /api/v1/actuator/prometheus
+    interval: 10s
+    scrapeTimeout: 10s
+  - port: http
+    path: /api/v1/monitoring/metrics
+    interval: 30s
+    scrapeTimeout: 10s
+
+---
+# ServiceMonitor用于Redis指标采集
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: redis-metrics
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: redis
+spec:
+  selector:
+    matchLabels:
+      app: raft-storage
+      component: redis
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 15s
+    scrapeTimeout: 10s
+
+---
+# Prometheus Rule用于定义告警规则和记录规则
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: raft-storage-scaling-rules
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+spec:
+  groups:
+  - name: raft-storage.scaling
+    interval: 10s
+    rules:
+    # 记录规则：计算API请求速率
+    - record: raft:api_request_rate
+      expr: rate(http_requests_total{job="raft-api"}[2m])
+    
+    # 记录规则：计算API P95响应时间
+    - record: raft:api_response_time_p95
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="raft-api"}[2m]))
+    
+    # 记录规则：计算缓存命中率
+    - record: raft:cache_hit_rate
+      expr: rate(cache_hits_total[2m]) / rate(cache_requests_total[2m])
+    
+    # 告警规则：高CPU使用率
+    - alert: HighCPUUsage
+      expr: rate(container_cpu_usage_seconds_total{pod=~"raft-.*"}[5m]) > 0.8
+      for: 2m
+      labels:
+        severity: warning
+        component: "{{ $labels.pod }}"
+      annotations:
+        summary: "High CPU usage detected"
+        description: "Pod {{ $labels.pod }} has high CPU usage: {{ $value }}"
+    
+    # 告警规则：高内存使用率
+    - alert: HighMemoryUsage
+      expr: container_memory_usage_bytes{pod=~"raft-.*"} / container_spec_memory_limit_bytes > 0.85
+      for: 2m
+      labels:
+        severity: warning
+        component: "{{ $labels.pod }}"
+      annotations:
+        summary: "High memory usage detected"
+        description: "Pod {{ $labels.pod }} has high memory usage: {{ $value }}"
+    
+    # 告警规则：API响应时间过长
+    - alert: HighAPILatency
+      expr: raft:api_response_time_p95 > 1.0
+      for: 1m
+      labels:
+        severity: warning
+        component: api
+      annotations:
+        summary: "High API latency detected"
+        description: "API P95 response time is {{ $value }} seconds"
+    
+    # 告警规则：缓存命中率过低
+    - alert: LowCacheHitRate
+      expr: raft:cache_hit_rate < 0.7
+      for: 5m
+      labels:
+        severity: warning
+        component: cache
+      annotations:
+        summary: "Low cache hit rate detected"
+        description: "Cache hit rate is {{ $value }}" 

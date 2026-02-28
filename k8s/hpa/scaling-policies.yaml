@@ -1,0 +1,263 @@
+# 预定义扩缩容策略配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scaling-policies
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: scaling
+data:
+  policies.yaml: |
+    # 扩缩容策略配置
+    scaling_policies:
+      # API服务扩缩容策略
+      api_service:
+        # 正常工作时间策略 (9:00-18:00)
+        business_hours:
+          min_replicas: 3
+          max_replicas: 15
+          target_cpu: 60
+          target_memory: 70
+          scale_up_behavior:
+            stabilization_window: 60s
+            policies:
+              - type: Percent
+                value: 100
+                period: 15s
+              - type: Pods
+                value: 4
+                period: 15s
+          scale_down_behavior:
+            stabilization_window: 300s
+            policies:
+              - type: Percent
+                value: 50
+                period: 60s
+              - type: Pods
+                value: 2
+                period: 60s
+        
+        # 非工作时间策略 (18:00-9:00)
+        off_hours:
+          min_replicas: 2
+          max_replicas: 8
+          target_cpu: 80
+          target_memory: 85
+          scale_up_behavior:
+            stabilization_window: 120s
+            policies:
+              - type: Percent
+                value: 50
+                period: 30s
+              - type: Pods
+                value: 2
+                period: 30s
+          scale_down_behavior:
+            stabilization_window: 600s
+            policies:
+              - type: Percent
+                value: 25
+                period: 120s
+              - type: Pods
+                value: 1
+                period: 120s
+        
+        # 高峰期策略 (促销、节假日等)
+        peak_hours:
+          min_replicas: 5
+          max_replicas: 20
+          target_cpu: 50
+          target_memory: 60
+          scale_up_behavior:
+            stabilization_window: 30s
+            policies:
+              - type: Percent
+                value: 200
+                period: 10s
+              - type: Pods
+                value: 6
+                period: 10s
+          scale_down_behavior:
+            stabilization_window: 600s
+            policies:
+              - type: Percent
+                value: 30
+                period: 120s
+              - type: Pods
+                value: 2
+                period: 120s
+      
+      # Redis扩缩容策略
+      redis_service:
+        normal:
+          min_replicas: 1
+          max_replicas: 3
+          target_cpu: 80
+          target_memory: 85
+          scale_up_behavior:
+            stabilization_window: 180s
+            policies:
+              - type: Pods
+                value: 1
+                period: 60s
+          scale_down_behavior:
+            stabilization_window: 900s
+            policies:
+              - type: Pods
+                value: 1
+                period: 180s
+        
+        high_load:
+          min_replicas: 2
+          max_replicas: 5
+          target_cpu: 70
+          target_memory: 80
+          scale_up_behavior:
+            stabilization_window: 120s
+            policies:
+              - type: Pods
+                value: 1
+                period: 60s
+          scale_down_behavior:
+            stabilization_window: 600s
+            policies:
+              - type: Pods
+                value: 1
+                period: 120s
+    
+    # 自定义指标阈值配置
+    custom_metrics:
+      api_qps_threshold: 50
+      api_latency_threshold: 0.5
+      redis_connections_threshold: 100
+      cache_hit_rate_threshold: 0.8
+      storage_operations_threshold: 30
+    
+    # 扩缩容事件配置
+    scaling_events:
+      # 节假日自动切换到高峰期策略
+      holidays:
+        - "2025-01-01"  # 元旦
+        - "2025-02-10"  # 春节开始
+        - "2025-02-17"  # 春节结束
+        - "2025-05-01"  # 劳动节
+        - "2025-10-01"  # 国庆节开始
+        - "2025-10-07"  # 国庆节结束
+      
+      # 每周高峰时段
+      weekly_peaks:
+        - day: "friday"
+          start: "20:00"
+          end: "23:00"
+        - day: "saturday"
+          start: "10:00"
+          end: "22:00"
+        - day: "sunday"
+          start: "10:00"
+          end: "22:00"
+      
+      # 促销活动时段
+      promotion_periods:
+        - name: "双11"
+          start: "2025-11-11 00:00"
+          end: "2025-11-11 23:59"
+          policy: "peak_hours"
+        - name: "双12"
+          start: "2025-12-12 00:00"
+          end: "2025-12-12 23:59"
+          policy: "peak_hours"
+
+---
+# CronJob用于自动切换扩缩容策略
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scaling-policy-scheduler
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: scaling
+spec:
+  schedule: "0 */1 * * *"  # 每小时执行一次
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: policy-scheduler
+            image: bitnami/kubectl:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              #!/bin/sh
+              
+              # 获取当前时间
+              HOUR=$(date +%H)
+              DAY=$(date +%u)
+              DATE=$(date +%Y-%m-%d)
+              
+              # 检查是否为节假日
+              if kubectl get configmap scaling-policies -n raft-storage -o jsonpath='{.data.policies\.yaml}' | grep -q "$DATE"; then
+                echo "Holiday detected: $DATE, applying peak_hours policy"
+                POLICY="peak_hours"
+              # 检查是否为工作时间 (9-18点，周一到周五)
+              elif [ $DAY -le 5 ] && [ $HOUR -ge 9 ] && [ $HOUR -lt 18 ]; then
+                echo "Business hours detected, applying business_hours policy"
+                POLICY="business_hours"
+              # 检查是否为周末高峰时段
+              elif [ $DAY -gt 5 ] && [ $HOUR -ge 10 ] && [ $HOUR -lt 22 ]; then
+                echo "Weekend peak hours detected, applying peak_hours policy"
+                POLICY="peak_hours"
+              else
+                echo "Off hours detected, applying off_hours policy"
+                POLICY="off_hours"
+              fi
+              
+              # 应用相应的HPA配置
+              echo "Applying scaling policy: $POLICY"
+              
+              # 这里可以根据策略动态更新HPA配置
+              # 实际实现中需要根据具体需求调整HPA资源
+              
+              echo "Scaling policy applied successfully"
+          restartPolicy: OnFailure
+          serviceAccountName: scaling-policy-scheduler
+---
+# ServiceAccount用于CronJob操作HPA资源
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scaling-policy-scheduler
+  namespace: raft-storage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scaling-policy-scheduler
+  namespace: raft-storage
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scaling-policy-scheduler
+  namespace: raft-storage
+subjects:
+- kind: ServiceAccount
+  name: scaling-policy-scheduler
+  namespace: raft-storage
+roleRef:
+  kind: Role
+  name: scaling-policy-scheduler
+  apiGroup: rbac.authorization.k8s.io 

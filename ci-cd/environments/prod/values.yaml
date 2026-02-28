@@ -1,0 +1,293 @@
+# 生产环境配置
+global:
+  imageRegistry: "harbor.example.com"
+  imageTag: "v1.9.0"
+  environment: "production"
+  namespace: "raft-storage-prod"
+
+# API服务配置
+api:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: harbor.example.com/raft-storage/api
+    tag: "v1.9.0"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  service:
+    type: ClusterIP
+    port: 8080
+  
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    hosts:
+      - host: raft-storage.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: raft-storage-prod-tls
+        hosts:
+          - raft-storage.example.com
+  
+  env:
+    SPRING_PROFILES_ACTIVE: "prod"
+    LOG_LEVEL: "WARN"
+    REDIS_HOST: "redis"
+    REDIS_PORT: "6379"
+    JVM_OPTS: "-Xms1g -Xmx2g -XX:+UseG1GC"
+
+# Raft核心服务配置
+raftCore:
+  enabled: true
+  replicaCount: 5
+  image:
+    repository: harbor.example.com/raft-storage/raft-core
+    tag: "v1.9.0"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  persistence:
+    enabled: true
+    storageClass: "premium-ssd"
+    accessMode: ReadWriteOnce
+    size: 50Gi
+  
+  # 节点亲和性配置
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-type
+              operator: In
+              values:
+                - storage-optimized
+
+# Redis配置
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: "redis-prod-password-123"
+  master:
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: "premium-ssd"
+  replica:
+    replicaCount: 3
+  
+  # Redis集群模式
+  cluster:
+    enabled: true
+    slaveCount: 2
+
+# Prometheus监控
+prometheus:
+  enabled: true
+  server:
+    persistentVolume:
+      enabled: true
+      size: 100Gi
+      storageClass: "premium-ssd"
+    retention: "30d"
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 8Gi
+      requests:
+        cpu: 500m
+        memory: 2Gi
+  
+  alertmanager:
+    enabled: true
+    persistentVolume:
+      enabled: true
+      size: 10Gi
+    
+    # 告警配置
+    config:
+      global:
+        smtp_smarthost: 'smtp.example.com:587'
+        smtp_from: 'alerts@example.com'
+      
+      route:
+        group_by: ['alertname']
+        group_wait: 10s
+        group_interval: 10s
+        repeat_interval: 1h
+        receiver: 'web.hook'
+      
+      receivers:
+        - name: 'web.hook'
+          email_configs:
+            - to: 'admin@example.com'
+              subject: '[PROD] Raft Storage Alert'
+          slack_configs:
+            - api_url: 'https://hooks.slack.com/services/...'
+              channel: '#alerts'
+
+# Grafana可视化
+grafana:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: "premium-ssd"
+  adminPassword: "grafana-prod-password-123"
+  
+  # 高可用配置
+  replicas: 2
+  
+  # 配置数据源
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-server:80
+          access: proxy
+          isDefault: true
+        - name: Loki
+          type: loki
+          url: http://loki:3100
+          access: proxy
+
+# 自动扩缩容
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 70
+  
+  # 自定义指标
+  customMetrics:
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "100"
+
+# Pod中断预算
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# 网络策略
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+
+# 安全配置
+security:
+  podSecurityPolicy:
+    enabled: true
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    readOnlyRootFilesystem: true
+  
+  # 资源配额
+  resourceQuota:
+    enabled: true
+    hard:
+      requests.cpu: "10"
+      requests.memory: "20Gi"
+      limits.cpu: "20"
+      limits.memory: "40Gi"
+      persistentvolumeclaims: "50"
+      services: "10"
+  
+  # 服务网格
+  serviceMesh:
+    enabled: true
+    istio:
+      enabled: true
+      mTLS: true
+
+# 备份配置
+backup:
+  enabled: true
+  schedule: "0 1 * * *"
+  retention: "30d"
+  storage:
+    type: "s3"
+    bucket: "raft-storage-prod-backup"
+    region: "us-west-2"
+    encryption: true
+  
+  # 跨区域备份
+  crossRegionBackup:
+    enabled: true
+    regions:
+      - "us-east-1"
+      - "eu-west-1"
+
+# 日志收集
+logging:
+  enabled: true
+  fluentd:
+    enabled: true
+    output:
+      elasticsearch:
+        host: "elasticsearch.logging.svc.cluster.local"
+        port: 9200
+        index: "raft-storage-prod"
+
+# 性能优化
+performance:
+  nodeSelector:
+    node-type: "high-performance"
+  
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "storage"
+      effect: "NoSchedule"
+  
+  # CPU亲和性
+  cpuAffinity:
+    enabled: true
+    policy: "static" 

@@ -1,0 +1,195 @@
+# Istio Gateway配置
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: raft-storage-gateway
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: gateway
+spec:
+  selector:
+    istio: ingressgateway  # 使用默认的istio-ingressgateway
+  servers:
+  # HTTP配置
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - raft-api.local
+    - raft-admin.local
+    - raft-monitoring.local
+    # 自动重定向到HTTPS
+    tls:
+      httpsRedirect: true
+  # HTTPS配置
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    hosts:
+    - raft-api.local
+    - raft-admin.local
+    - raft-monitoring.local
+    tls:
+      mode: SIMPLE
+      credentialName: raft-storage-tls-secret
+
+---
+# VirtualService配置 - API服务
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: raft-api-vs
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: api
+spec:
+  hosts:
+  - raft-api.local
+  gateways:
+  - raft-storage-gateway
+  http:
+  # API路由配置
+  - match:
+    - uri:
+        prefix: /api/v1/
+    route:
+    - destination:
+        host: raft-api-service
+        port:
+          number: 80
+    # 流量策略
+    timeout: 30s
+    retries:
+      attempts: 3
+      perTryTimeout: 10s
+      retryOn: 5xx,reset,connect-failure,refused-stream
+    # 故障注入（用于测试）
+    fault:
+      delay:
+        percentage:
+          value: 0.0  # 设置为0关闭延迟注入
+        fixedDelay: 5s
+      abort:
+        percentage:
+          value: 0.0  # 设置为0关闭错误注入
+        httpStatus: 500
+  # Swagger UI路由
+  - match:
+    - uri:
+        prefix: /swagger-ui/
+    - uri:
+        exact: /v3/api-docs
+    route:
+    - destination:
+        host: raft-api-service
+        port:
+          number: 80
+  # 健康检查路由
+  - match:
+    - uri:
+        prefix: /actuator/health
+    route:
+    - destination:
+        host: raft-api-service
+        port:
+          number: 80
+    timeout: 5s
+  # 默认路由到API根路径
+  - route:
+    - destination:
+        host: raft-api-service
+        port:
+          number: 80
+
+---
+# VirtualService配置 - 管理界面
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: raft-admin-vs
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: admin
+spec:
+  hosts:
+  - raft-admin.local
+  gateways:
+  - raft-storage-gateway
+  http:
+  - route:
+    - destination:
+        host: raft-admin-service
+        port:
+          number: 80
+    timeout: 30s
+
+---
+# VirtualService配置 - 监控界面
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: raft-monitoring-vs
+  namespace: raft-storage
+  labels:
+    app: raft-storage
+    component: monitoring
+spec:
+  hosts:
+  - raft-monitoring.local
+  gateways:
+  - raft-storage-gateway
+  http:
+  # Prometheus路由
+  - match:
+    - uri:
+        prefix: /prometheus/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: prometheus-service
+        port:
+          number: 9090
+    timeout: 30s
+  # Grafana路由
+  - match:
+    - uri:
+        prefix: /grafana/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: grafana-service
+        port:
+          number: 3000
+    timeout: 30s
+  # 默认路由到Grafana
+  - route:
+    - destination:
+        host: grafana-service
+        port:
+          number: 3000
+
+---
+# TLS证书Secret（需要手动创建或使用cert-manager）
+apiVersion: v1
+kind: Secret
+metadata:
+  name: raft-storage-tls-secret
+  namespace: istio-system  # 注意：Secret需要在istio-system命名空间
+type: kubernetes.io/tls
+data:
+  # 这里需要替换为实际的证书和私钥（base64编码）
+  # 可以使用以下命令生成自签名证书用于测试：
+  # openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  #   -keyout tls.key -out tls.crt \
+  #   -subj "/CN=raft-api.local/O=raft-storage"
+  # kubectl create secret tls raft-storage-tls-secret \
+  #   --key=tls.key --cert=tls.crt -n istio-system
+  tls.crt: LS0tLS1CRUdJTi...  # 替换为实际的证书
+  tls.key: LS0tLS1CRUdJTi...  # 替换为实际的私钥 

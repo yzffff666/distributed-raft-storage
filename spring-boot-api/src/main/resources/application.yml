@@ -1,0 +1,217 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api/v1
+
+spring:
+  application:
+    name: raft-distributed-storage
+  
+  # Redis配置
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 3000
+    lettuce:
+      pool:
+        max-active: 8
+        max-wait: -1
+        max-idle: 8
+        min-idle: 0
+    # Redis集群配置
+    cluster:
+      enabled: false  # 开发环境使用单机模式，生产环境可设置为true
+      nodes: 
+        - localhost:7000
+        - localhost:7001
+        - localhost:7002
+        - localhost:7003
+        - localhost:7004
+        - localhost:7005
+      max-redirects: 3
+    # Redis Sentinel配置（高可用）
+    sentinel:
+      enabled: false
+      master: mymaster
+      nodes:
+        - localhost:26379
+        - localhost:26380
+        - localhost:26381
+      # 健康检查配置
+      health-check:
+        enabled: true
+        interval: 30000  # 30秒检查一次
+  
+  # 分布式链路追踪配置
+  sleuth:
+    sampler:
+      probability: 1.0  # 采样率：1.0表示100%采样
+    zipkin:
+      base-url: http://zipkin:9411
+      sender:
+        type: web  # 使用HTTP发送trace数据
+    web:
+      client:
+        enabled: true
+    http:
+      enabled: true
+    redis:
+      enabled: true
+    scheduled:
+      enabled: true
+    async:
+      enabled: true
+    trace-id128: true  # 使用128位trace ID
+    
+  zipkin:
+    base-url: http://zipkin:9411
+    discovery-client-enabled: false
+    sender:
+      type: web
+  
+  # 文件上传配置
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+      enabled: true
+
+# Actuator监控端点配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: raft-distributed-storage
+
+# 日志配置
+logging:
+  level:
+    com.github.raftimpl.raft: INFO
+    org.springframework: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/raft-api.log
+    max-size: 10MB
+    max-history: 30
+
+# Raft集群配置
+raft:
+  cluster:
+    nodes:
+      - id: 1
+        host: localhost
+        port: 8051
+      - id: 2
+        host: localhost
+        port: 8052
+      - id: 3
+        host: localhost
+        port: 8053
+  
+  # 数据存储路径
+  data:
+    path: /tmp/raft-data
+  
+  # 选举超时时间(ms)
+  election-timeout: 5000
+  
+  # 心跳间隔时间(ms)
+  heartbeat-interval: 1000
+
+# Swagger配置
+swagger:
+  enabled: true
+  title: 分布式存储系统API
+  description: 基于Raft算法的分布式存储系统RESTful API
+  version: 1.9.0
+  contact:
+    name: raft-java
+    email: 1367016356@qq.com
+
+# JWT配置
+jwt:
+  secret: raft-distributed-storage-jwt-secret-key-2025
+  expiration: 86400000  # 24小时
+
+# 限流配置
+rate-limit:
+  enabled: true
+  requests-per-second: 100
+  burst-capacity: 200
+
+# 熔断器配置
+resilience4j:
+  circuitbreaker:
+    instances:
+      raft-service:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 5s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 10
+
+# 缓存配置
+cache:
+  type: redis
+  redis:
+    time-to-live: 3600000  # 默认缓存1小时
+    cache-null-values: false
+    use-key-prefix: true
+    key-prefix: "raft:cache:"
+  # 缓存一致性配置
+  consistency:
+    sync-delay-ms: 100
+    max-retry-count: 3
+    version-key-prefix: "version:"
+    lock-key-prefix: "lock:"
+    lock-timeout-seconds: 30
+
+# 对象存储配置
+object-storage:
+  local:
+    base-path: /tmp/raft-object-storage
+    max-file-size: 104857600  # 100MB
+    multipart-threshold: 5242880  # 5MB
+    part-size: 5242880  # 5MB 
+# AI服务配置
+ai:
+  enabled: true
+  deepseek:
+    api:
+      url: https://api.deepseek.com/v1/chat/completions
+      key: ${DEEPSEEK_API_KEY:mock-api-key}
+      timeout: 30000
+      max-tokens: 2048
+  cache:
+    enabled: true
+    ttl: 300 # 缓存5分钟
+  rate-limit:
+    enabled: true
+    requests-per-minute: 60
+
+# Redisson配置
+redisson:
+  config: |
+    singleServerConfig:
+      address: "redis://localhost:6379"
+      database: 0
+      connectionPoolSize: 8
+      connectionMinimumIdleSize: 2
+      idleConnectionTimeout: 10000
+      connectTimeout: 10000
+      timeout: 3000

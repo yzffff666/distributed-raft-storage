@@ -1,0 +1,211 @@
+{{ define "__alert_severity_prefix_title" -}}
+    {{- if eq .Labels.severity "critical" -}}
+        🚨 [严重]
+    {{- else if eq .Labels.severity "warning" -}}
+        ⚠️ [警告]
+    {{- else if eq .Labels.severity "info" -}}
+        ℹ️ [信息]
+    {{- else -}}
+        📢 [通知]
+    {{- end -}}
+{{- end }}
+
+{{ define "__alert_severity_prefix" -}}
+    {{- if eq .Labels.severity "critical" -}}
+        🚨
+    {{- else if eq .Labels.severity "warning" -}}
+        ⚠️
+    {{- else if eq .Labels.severity "info" -}}
+        ℹ️
+    {{- else -}}
+        📢
+    {{- end -}}
+{{- end }}
+
+{{ define "__alert_team_emoji" -}}
+    {{- if eq .Labels.team "infrastructure" -}}
+        🏗️
+    {{- else if eq .Labels.team "application" -}}
+        💻
+    {{- else if eq .Labels.team "database" -}}
+        🗄️
+    {{- else if eq .Labels.team "storage" -}}
+        💾
+    {{- else if eq .Labels.team "business" -}}
+        📊
+    {{- else if eq .Labels.team "monitoring" -}}
+        📈
+    {{- else -}}
+        🔔
+    {{- end -}}
+{{- end }}
+
+{{ define "__alert_status" -}}
+    {{- if eq .Status "firing" -}}
+        🔥 告警中
+    {{- else -}}
+        ✅ 已恢复
+    {{- end -}}
+{{- end }}
+
+{{ define "__alert_duration" -}}
+    {{- if .StartsAt -}}
+        持续时间: {{ .StartsAt | duration }}
+    {{- end -}}
+{{- end }}
+
+{{ define "email.default.subject" -}}
+    {{ template "__alert_severity_prefix_title" . }} Raft Storage 告警 - {{ .GroupLabels.alertname }}
+{{- end }}
+
+{{ define "email.default.html" -}}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Raft Storage 告警通知</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #e0e0e0; }
+        .alert { margin-bottom: 20px; padding: 15px; border-radius: 5px; border-left: 4px solid; }
+        .alert.critical { background-color: #ffebee; border-left-color: #f44336; }
+        .alert.warning { background-color: #fff3e0; border-left-color: #ff9800; }
+        .alert.info { background-color: #e3f2fd; border-left-color: #2196f3; }
+        .alert-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+        .alert-description { margin-bottom: 10px; color: #666; }
+        .alert-details { font-size: 12px; color: #888; }
+        .alert-details table { width: 100%; border-collapse: collapse; }
+        .alert-details td { padding: 5px 10px; border-bottom: 1px solid #eee; }
+        .alert-details td:first-child { font-weight: bold; width: 120px; }
+        .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; text-align: center; color: #888; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{ template "__alert_severity_prefix" . }} Raft Storage 监控告警</h1>
+            <p>集群: {{ .GroupLabels.cluster | default "default" }} | 环境: {{ .GroupLabels.environment | default "production" }}</p>
+        </div>
+        
+        {{ range .Alerts }}
+        <div class="alert {{ .Labels.severity }}">
+            <div class="alert-title">
+                {{ template "__alert_team_emoji" . }} {{ .Annotations.summary }}
+            </div>
+            <div class="alert-description">
+                {{ .Annotations.description }}
+            </div>
+            <div class="alert-details">
+                <table>
+                    <tr><td>告警状态:</td><td>{{ template "__alert_status" . }}</td></tr>
+                    <tr><td>告警级别:</td><td>{{ .Labels.severity | upper }}</td></tr>
+                    <tr><td>负责团队:</td><td>{{ .Labels.team | default "未指定" }}</td></tr>
+                    <tr><td>服务名称:</td><td>{{ .Labels.job | default "未知" }}</td></tr>
+                    <tr><td>实例地址:</td><td>{{ .Labels.instance | default "未知" }}</td></tr>
+                    <tr><td>开始时间:</td><td>{{ .StartsAt.Format "2006-01-02 15:04:05" }}</td></tr>
+                    {{- if .EndsAt }}
+                    <tr><td>结束时间:</td><td>{{ .EndsAt.Format "2006-01-02 15:04:05" }}</td></tr>
+                    {{- end }}
+                    {{- if .GeneratorURL }}
+                    <tr><td>详细信息:</td><td><a href="{{ .GeneratorURL }}">查看详情</a></td></tr>
+                    {{- end }}
+                </table>
+            </div>
+        </div>
+        {{ end }}
+        
+        <div class="footer">
+            <p>此邮件由 Raft Storage 监控系统自动发送</p>
+            <p>发送时间: {{ now.Format "2006-01-02 15:04:05" }}</p>
+        </div>
+    </div>
+</body>
+</html>
+{{- end }}
+
+{{ define "slack.default.title" -}}
+    {{ template "__alert_severity_prefix" . }} {{ .GroupLabels.alertname }}
+{{- end }}
+
+{{ define "slack.default.text" -}}
+{{ range .Alerts }}
+*{{ template "__alert_team_emoji" . }} {{ .Annotations.summary }}*
+{{ .Annotations.description }}
+
+• 级别: {{ .Labels.severity | upper }}
+• 服务: {{ .Labels.job | default "未知" }}
+• 实例: {{ .Labels.instance | default "未知" }}
+• 时间: {{ .StartsAt.Format "15:04:05" }}
+{{- if .GeneratorURL }}
+• <{{ .GeneratorURL }}|查看详情>
+{{- end }}
+
+{{ end }}
+{{- end }}
+
+{{ define "wechat.default.message" -}}
+{{ template "__alert_severity_prefix" . }} Raft Storage 告警
+
+{{ range .Alerts }}
+{{ template "__alert_team_emoji" . }} {{ .Annotations.summary }}
+{{ .Annotations.description }}
+
+级别: {{ .Labels.severity | upper }}
+服务: {{ .Labels.job | default "未知" }}
+实例: {{ .Labels.instance | default "未知" }}
+时间: {{ .StartsAt.Format "15:04:05" }}
+
+{{ end }}
+{{- end }}
+
+{{ define "dingtalk.default.message" -}}
+{
+  "msgtype": "markdown",
+  "markdown": {
+    "title": "{{ template "__alert_severity_prefix" . }} Raft Storage 告警",
+    "text": "## {{ template "__alert_severity_prefix" . }} Raft Storage 告警通知\n\n{{ range .Alerts }}### {{ template "__alert_team_emoji" . }} {{ .Annotations.summary }}\n\n**告警描述:** {{ .Annotations.description }}\n\n**告警详情:**\n- 级别: {{ .Labels.severity | upper }}\n- 团队: {{ .Labels.team | default "未指定" }}\n- 服务: {{ .Labels.job | default "未知" }}\n- 实例: {{ .Labels.instance | default "未知" }}\n- 时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}\n\n{{ if .GeneratorURL }}[查看详情]({{ .GeneratorURL }})\n\n{{ end }}{{ end }}---\n\n发送时间: {{ now.Format "2006-01-02 15:04:05" }}"
+  }
+}
+{{- end }}
+
+{{ define "webhook.default.message" -}}
+{
+  "version": "4",
+  "groupKey": "{{ .GroupKey }}",
+  "status": "{{ .Status }}",
+  "receiver": "{{ .Receiver }}",
+  "groupLabels": {{ .GroupLabels | toJSON }},
+  "commonLabels": {{ .CommonLabels | toJSON }},
+  "commonAnnotations": {{ .CommonAnnotations | toJSON }},
+  "externalURL": "{{ .ExternalURL }}",
+  "alerts": [
+    {{ range $i, $alert := .Alerts }}
+    {{- if $i }},{{ end }}
+    {
+      "status": "{{ $alert.Status }}",
+      "labels": {{ $alert.Labels | toJSON }},
+      "annotations": {{ $alert.Annotations | toJSON }},
+      "startsAt": "{{ $alert.StartsAt }}",
+      "endsAt": "{{ $alert.EndsAt }}",
+      "generatorURL": "{{ $alert.GeneratorURL }}",
+      "fingerprint": "{{ $alert.Fingerprint }}"
+    }
+    {{ end }}
+  ]
+}
+{{- end }}
+
+{{ define "pagerduty.default.description" -}}
+{{ range .Alerts }}
+{{ .Annotations.summary }}: {{ .Annotations.description }}
+{{ end }}
+{{- end }}
+
+{{ define "pagerduty.default.client" -}}
+Raft Storage AlertManager
+{{- end }}
+
+{{ define "pagerduty.default.clientURL" -}}
+{{ .ExternalURL }}
+{{- end }} 

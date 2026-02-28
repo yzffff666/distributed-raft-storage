@@ -1,0 +1,62 @@
+1. Get the application URL by running these commands:
+{{- if .Values.api.ingress.enabled }}
+{{- range $host := .Values.api.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.api.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.api.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Values.namespace.name }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "raft-storage.fullname" . }}-api)
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Values.namespace.name }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.api.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch the status of by running 'kubectl get --namespace {{ .Values.namespace.name }} svc -w {{ include "raft-storage.fullname" . }}-api'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Values.namespace.name }} {{ include "raft-storage.fullname" . }}-api --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.api.service.port }}
+{{- else if contains "ClusterIP" .Values.api.service.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Values.namespace.name }} -l "app.kubernetes.io/name={{ include "raft-storage.name" . }},app.kubernetes.io/instance={{ .Release.Name }},component=api" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Values.namespace.name }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace {{ .Values.namespace.name }} port-forward $POD_NAME 8080:$CONTAINER_PORT
+{{- end }}
+
+2. Default login credentials:
+   - Admin: admin / admin123
+   - User: user / user123
+   - ReadOnly: readonly / readonly123
+
+3. API Documentation:
+   - Swagger UI: http://your-domain/api/v1/swagger-ui/index.html
+   - OpenAPI JSON: http://your-domain/api/v1/v3/api-docs
+
+4. Monitoring:
+{{- if .Values.monitoring.prometheus.enabled }}
+   - Prometheus: http://your-domain:{{ .Values.monitoring.prometheus.server.service.nodePort }}
+{{- end }}
+{{- if .Values.monitoring.grafana.enabled }}
+   - Grafana: http://your-domain:{{ .Values.monitoring.grafana.service.nodePort }} (admin/{{ .Values.monitoring.grafana.admin.password }})
+{{- end }}
+
+5. Raft Cluster Status:
+   Check cluster status with:
+   kubectl get pods --namespace {{ .Values.namespace.name }} -l component=raft-node
+
+6. Storage Operations:
+   Use the API endpoints to perform storage operations:
+   - GET /api/v1/storage/{key} - Get value by key
+   - POST /api/v1/storage - Store key-value pair
+   - PUT /api/v1/storage/{key} - Update value by key
+   - DELETE /api/v1/storage/{key} - Delete key-value pair
+
+7. Cluster Management:
+   - GET /api/v1/cluster/info - Get cluster information
+   - GET /api/v1/cluster/nodes - List all nodes
+   - GET /api/v1/cluster/leader - Get current leader
+   - GET /api/v1/cluster/metrics - Get cluster metrics
+
+8. Health Check:
+   - GET /api/v1/monitoring/health - Application health status
+   - GET /api/v1/monitoring/metrics - Application metrics
+
+For more information, visit: https://github.com/yzffff666/distributed-raft-storage
